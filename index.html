@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>形近字配對消除遊戲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Firebase 匯入 -->
+    <script type="module">
+        // **此區塊負責處理線上/本地模式判斷，確保在本機開啟時不會發生錯誤**
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, query, orderBy, limit, doc, setDoc, onSnapshot, getDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // 確保全局變數存在
+        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        window.__firebase_config = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
+        window.__initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const firebaseConfig = JSON.parse(window.__firebase_config);
+        
+        // 檢查是否為本地檔案協定
+        const isLocalFile = window.location.protocol === 'file:';
+        
+        // 只有在非本地模式且有 config 時才初始化 Firebase
+        if (!isLocalFile && Object.keys(firebaseConfig).length > 0 && !window.firebaseApp) {
+            window.firebaseApp = initializeApp(firebaseConfig);
+            window.db = getFirestore(window.firebaseApp);
+            window.auth = getAuth(window.firebaseApp);
+        }
+        
+        // 將必要的 Firebase 函數暴露給全局範圍
+        window.firebase = {
+            auth: window.auth,
+            db: window.db,
+            appId: window.__app_id,
+            initialAuthToken: window.__initial_auth_token,
+            signInAnonymously: signInAnonymously,
+            signInWithCustomToken: signInWithCustomToken,
+            onAuthStateChanged: onAuthStateChanged,
+            collection: collection,
+            query: query,
+            orderBy: orderBy,
+            limit: limit,
+            doc: doc,
+            setDoc: setDoc,
+            onSnapshot: onSnapshot,
+            getDoc: getDoc,
+            runTransaction: runTransaction,
+            isLocalFile: isLocalFile, // 傳遞本地檔案狀態
+        };
+        
+        // Promise 僅在非本地模式下使用
+        if (!isLocalFile) {
+            window.firebase.authReadyPromise = new Promise(resolve => {
+                window.firebase.onAuthStateChanged(window.auth, (user) => {
+                    if (!user) {
+                        (async () => {
+                            try {
+                                if (window.firebase.initialAuthToken) {
+                                    await window.firebase.signInWithCustomToken(window.auth, window.firebase.initialAuthToken);
+                                } else {
+                                    await window.firebase.signInAnonymously(window.auth);
+                                }
+                            } catch (e) {
+                                console.error("Initial Firebase sign-in attempt failed:", e);
+                            }
+                            resolve(window.auth.currentUser?.uid || null);
+                        })();
+                    } else {
+                        resolve(user.uid);
+                    }
+                });
+            });
+        }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f5f3f0;
+            color: #4a4a4a;
+        }
+        .item-card {
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            user-select: none;
+            backface-visibility: hidden;
+            transform: translateZ(0);
+        }
+        .item-card:hover {
+            transform: scale(1.03);
+            box-shadow: 0 5px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        .item-card.selected {
+            border: 4px solid #f97316;
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px -5px rgba(249, 115, 22, 0.5);
+            opacity: 0.9;
+        }
+        .item-card.char-card {
+             background-color: #bae6fd;
+             color: #0369a1;
+        }
+        .item-card.word-card {
+             background-color: #fef9c3;
+             color: #a16207;
+             font-size: 1.5rem; 
+        }
+        .item-card.error {
+            border-color: #ef4444;
+            animation: shake 0.5s;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+            20%, 40%, 60%, 80% { transform: translateX(5px); }
+        }
+
+        /* 煙火 CSS */
+        #fireworks-container {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 40; display: none;
+        }
+        .firework {
+            position: absolute; width: 8px; height: 8px; border-radius: 50%; background-color: #fff; box-shadow: 0 0 8px #fff; opacity: 0; animation: firework-burst 1s ease-out;
+        }
+        @keyframes firework-burst {
+            0% { transform: scale(0.1); opacity: 1; box-shadow: 0 0 5px #fff; }
+            100% { transform: scale(1.5); opacity: 0; box-shadow: 0 0 50px #fff; }
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <!-- 登入畫面 -->
+    <div id="login-screen" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
+        <div class="bg-white p-8 md:p-12 rounded-xl text-center shadow-2xl w-11/12 max-w-sm">
+            <h2 class="text-3xl font-extrabold text-blue-600 mb-6">歡迎挑戰！</h2>
+            <p class="text-gray-600 mb-4">請輸入您的 **座號** 以開始遊戲並參與排名：</p>
+            <input type="number" id="seat-number-input" placeholder="例如：05" class="w-full p-3 border-4 border-yellow-400 rounded-lg text-2xl text-center font-mono focus:outline-none focus:border-blue-500 transition-colors mb-6" min="1" max="99">
+            <button id="start-game-btn" class="w-full bg-green-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-600 transition-colors shadow-md">開始挑戰</button>
+        </div>
+    </div>
+
+    <!-- 遊戲主體 -->
+    <main id="game-main-content" class="w-full max-w-6xl mx-auto bg-white rounded-2xl shadow-xl p-6 md:p-10 hidden">
+        <header class="text-center mb-8">
+            <h1 class="4xl md:text-5xl font-bold text-gray-800">形近字消消大挑戰</h1>
+            <p class="text-xl text-gray-600 mt-2">說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <!-- Instructions and Status & Leaderboard -->
+            <div class="md:col-span-1 bg-gray-50 p-5 rounded-xl border border-gray-200 h-fit">
+                
+                <!-- 關卡狀態 -->
+                <h2 class="text-2xl font-semibold text-gray-700 mb-3 border-b pb-2">
+                    目前關卡：<span id="current-level-display" class="font-bold text-red-500 text-3xl">第 1 關</span>
+                </h2>
+                <p class="text-lg text-gray-600">玩家：<span id="current-seat-number" class="font-bold text-blue-600">--</span> 號</p>
+                <p class="text-lg text-gray-600 mb-4">已消除組數：<span id="score" class="font-bold text-green-600 text-2xl">0</span> / <span id="total-sets">0</span></p>
+                <p class="text-lg text-gray-600 mb-4">計時：<span id="timer" class="font-bold text-gray-700 text-xl">00:00</span></p>
+
+                <h3 class="text-xl font-medium text-gray-700 mb-2">當前選擇</h3>
+                <div id="selected-list" class="space-y-1 bg-white p-3 rounded-lg border">
+                    <p class="text-sm text-gray-400">尚未選擇卡片...</p>
+                </div>
+                
+                <button id="reset-btn" class="w-full mt-6 bg-blue-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors shadow-md">重新開始 (從第 1 關)</button>
+                
+                <!-- 排行榜 -->
+                <div id="leaderboard-container" class="mt-8">
+                    <h3 class="text-2xl font-bold text-yellow-600 mb-3 border-b-2 border-yellow-400 pb-2">🏆 排行榜 (最佳得分)</h3>
+                    <ul id="leaderboard-list" class="space-y-2 text-left">
+                        <li class="text-gray-500" id="leaderboard-status">載入中...</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Game Board -->
+            <div id="game-board" class="md:col-span-3 bg-gray-100 p-6 rounded-xl min-h-[400px] grid grid-cols-3 gap-4 border border-gray-300">
+                <!-- Cards will be injected here -->
+            </div>
+        </div>
+
+        <!-- 浮動回饋圖示 -->
+        <div id="feedback-icon" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-9xl z-50 opacity-0 transition-opacity duration-300 pointer-events-none"></div>
+
+        <!-- 煙火特效容器 -->
+        <div id="fireworks-container"></div>
+
+        <!-- 關卡晉級訊息 -->
+        <div id="level-up-message" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
+            <div class="bg-white p-10 rounded-2xl text-center shadow-2xl w-11/12 max-w-lg">
+                <p id="level-up-text" class="text-2xl md:text-3xl font-bold text-gray-800 mb-6"></p>
+                <div class="text-6xl mb-6 text-green-500 font-extrabold animate-bounce">
+                    ⬆️ ⬆️ ⬆️
+                </div>
+                <button id="next-level-btn" class="bg-green-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-green-700 transition-colors shadow-lg">開始下一關</button>
+            </div>
+        </div>
+
+        <!-- 總勝利訊息 -->
+        <div id="success-message" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
+            <div class="bg-white p-10 rounded-xl text-center shadow-2xl">
+                <h2 class="text-4xl font-extrabold text-green-700 mb-4">🎉 恭喜！挑戰成功！ 🎉</h2>
+                <p id="final-stats" class="text-xl text-gray-700 mb-6 font-bold">總時間：--，正確率：--</p>
+                <p id="local-score-warning" class="text-sm text-red-500 mb-6 hidden">
+                    （注意：本地模式下，此分數不會被記錄到排行榜中。）
+                </p>
+                <button id="final-reset-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors">再玩一次 (重置)</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // *** 所有的形近字組 (共 21 組) ***
+        const allEliminationSets = [
+            // Level 1: Sets 1-6 (6 sets)
+            { category: '燈', items: ['燈', '___光', '挑___夜戰'], type: 'fire' }, // 1
+            { category: '澄', items: ['澄', '___清', '黃______'], type: 'water' }, // 2
+            { category: '橙', items: ['橙', '柳___', '紅___黃綠藍靛紫'], type: 'wood' }, // 3
+            { category: '樸', items: ['樸', '___實無華', '___素'], type: 'wood' }, // 4
+            { category: '僕', items: ['僕', '___人', '風塵______'], type: 'people' }, // 5
+            { category: '撲', items: ['撲', '___滅', '飛蛾___火'], type: 'hand' }, // 6
+            // Level 2: Sets 7-13 (7 sets)
+            { category: '堆', items: ['堆', '___疊', '___積如山'], type: 'soil' }, // 7
+            { category: '推', items: ['推', '___三阻四', '___動'], type: 'hand' }, // 8
+            { category: '稚', items: ['稚', '幼___', '___嫩'], type: 'rice' }, // 9
+            { category: '撿', items: ['撿', '___拾', '___便宜'], type: 'hand' }, // 10
+            { category: '檢', items: ['檢', '突擊___查', '___驗'], type: 'wood' }, // 11
+            { category: '儉', items: ['儉', '節___', '省吃___用'], type: 'people' }, // 12
+            { category: '臉', items: ['臉', '___孔', '愁眉苦___'], type: 'meat' }, // 13
+            // Level 3: Sets 14-21 (8 sets)
+            { category: '康', items: ['康', '健___', '___復'], type: 'house' }, // 14
+            { category: '慷', items: ['慷', '___慨', '___慨解囊'], type: 'heart' }, // 15
+            { category: '糠', items: ['糠', '米___', '糟___之妻'], type: 'rice' }, // 16
+            { category: '滋', items: ['滋', '___潤', '個中___味'], type: 'water' }, // 17
+            { category: '磁', items: ['磁', '___鐵', '___浮列車'], type: 'stone' }, // 18
+            { category: '慨', items: ['慨', '慷___', '感___'], type: 'heart' }, // 19
+            { category: '概', items: ['概', '大___', '___念'], type: 'wood' }, // 20
+            { category: '溉', items: ['溉', '灌___', '灌___工程'], type: 'heart' }, // 21
+        ];
+
+        // 關卡定義：start (包含) 到 end (不包含)
+        const levelDefinitions = {
+            1: { start: 0, end: 6, sets: 6, encouragement: "🎉 恭喜完成第一關！進入第二關挑戰進階形近字吧！" },
+            2: { start: 6, end: 13, sets: 7, encouragement: "🏆 太棒了！第二關挑戰成功！準備挑戰最後的魔王關！" },
+            3: { start: 13, end: 21, sets: 8, encouragement: null }
+        };
+
+        // 遊戲狀態變數
+        let currentLevel = 1;
+        let currentLevelSets = [];
+        let allItems = [];
+        let selectedCards = [];
+        let score = 0;
+        let totalAttempts = 0; // 新增：總檢查次數
+        let gameStartTime = null; // 新增：遊戲開始時間
+        let timerInterval = null;
+        let totalTimeSeconds = 0;
+
+        let userId = null;
+        let seatNumber = null;
+        
+        // UI 元素
+        const loginScreen = document.getElementById('login-screen');
+        const gameMainContent = document.getElementById('game-main-content');
+        const seatNumberInput = document.getElementById('seat-number-input');
+        const startGameBtn = document.getElementById('start-game-btn');
+        const gameBoard = document.getElementById('game-board');
+        const scoreDisplay = document.getElementById('score');
+        const totalSetsDisplay = document.getElementById('total-sets');
+        const selectedList = document.getElementById('selected-list');
+        const successMessage = document.getElementById('success-message');
+        const levelUpMessage = document.getElementById('level-up-message');
+        const levelDisplay = document.getElementById('current-level-display');
+        const resetButton = document.getElementById('reset-btn');
+        const finalResetButton = document.getElementById('final-reset-btn');
+        const nextLevelButton = document.getElementById('next-level-btn');
+        const timerDisplay = document.getElementById('timer');
+        const currentSeatNumberDisplay = document.getElementById('current-seat-number');
+        const leaderboardList = document.getElementById('leaderboard-list');
+        const leaderboardStatus = document.getElementById('leaderboard-status');
+        const localScoreWarning = document.getElementById('local-score-warning');
+
+
+        // --- Firebase/Firestore 相關函數 ---
+
+        // 排行榜資料庫路徑
+        const getLeaderboardRef = () => {
+            if (window.firebase.isLocalFile || !window.firebase.db) return null;
+            const path = `/artifacts/${window.firebase.appId}/public/data/leaderboard_scores`;
+            return window.firebase.collection(window.firebase.db, path);
+        };
+
+        // 格式化時間 (秒數轉為 MM:SS)
+        const formatTime = (seconds) => {
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+        };
+
+        // 開始計時
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            gameStartTime = Date.now();
+            
+            const updateTimer = () => {
+                totalTimeSeconds = Math.floor((Date.now() - gameStartTime) / 1000);
+                timerDisplay.textContent = formatTime(totalTimeSeconds);
+            };
+            
+            updateTimer();
+            timerInterval = setInterval(updateTimer, 1000);
+        }
+
+        // 停止計時
+        function stopTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
+        // 抓取並顯示排行榜
+        function fetchLeaderboard() {
+            const leaderboardRef = getLeaderboardRef();
+            if (!leaderboardRef) {
+                // 如果是本地模式或未連線，跳過排行榜
+                leaderboardStatus.textContent = '❌ 本地模式：無法連線到排行榜';
+                leaderboardList.innerHTML = `<li class="text-red-500 font-bold">請將檔案上傳至伺服器以啟用排名。</li>`;
+                return;
+            }
+            
+            leaderboardStatus.textContent = '載入中...';
+
+            const q = window.firebase.query(
+                leaderboardRef,
+                window.firebase.orderBy("rankingScore", "desc"),
+                window.firebase.limit(10) // 顯示前 10 名
+            );
+
+            // 實時監聽排行榜變化
+            window.firebase.onSnapshot(q, (snapshot) => {
+                const scores = [];
+                snapshot.forEach((doc) => {
+                    scores.push(doc.data());
+                });
+
+                leaderboardList.innerHTML = '';
+                leaderboardStatus.textContent = ''; // 清除狀態
+
+                if (scores.length === 0) {
+                    leaderboardList.innerHTML = '<li class="text-gray-500">尚無排名數據。</li>';
+                    return;
+                }
+
+                scores.forEach((scoreData, index) => {
+                    const li = document.createElement('li');
+                    const rank = index + 1;
+                    const isCurrentUser = scoreData.userId === userId;
+                    
+                    // 排名分數 = (正確組數 * 3 / 總嘗試次數) * 1000 - 總時間
+                    const accuracy = (scoreData.totalCorrectMatches * 3) / scoreData.totalAttempts;
+
+                    let rankClass = 'text-gray-700 font-medium';
+                    let rankIcon = '🔸';
+                    if (rank === 1) { rankClass = 'text-yellow-600 font-extrabold text-lg'; rankIcon = '🥇'; }
+                    else if (rank === 2) { rankClass = 'text-gray-600 font-bold'; rankIcon = '🥈'; }
+                    else if (rank === 3) { rankClass = 'text-yellow-700 font-semibold'; rankIcon = '🥉'; }
+
+                    if (isCurrentUser) {
+                        rankClass += ' bg-yellow-100 p-1 rounded-md border-2 border-yellow-500'; // 突顯當前玩家
+                    }
+                    
+                    li.className = rankClass + ' flex justify-between items-center';
+                    li.innerHTML = `
+                        <span class="truncate">
+                            ${rankIcon} ${scoreData.seatNumber} 號
+                            ${isCurrentUser ? ' (您)' : ''}
+                        </span>
+                        <span class="text-sm text-gray-500 ml-2">
+                            ${formatTime(scoreData.totalTimeSeconds)} / ${Math.round(accuracy * 100)}%
+                        </span>
+                    `;
+                    leaderboardList.appendChild(li);
+                });
+            }, (error) => {
+                console.error("Failed to fetch leaderboard (Permission Error likely):", error);
+                leaderboardList.innerHTML = '<li class="text-red-500">排行榜載入失敗 (權限或連線錯誤)。</li>';
+            });
+        }
+
+        // 提交最佳得分到 Firestore
+        async function submitScore(timeTaken, attempts) {
+            const leaderboardRef = getLeaderboardRef();
+            if (!leaderboardRef) {
+                console.warn("Skipping score submission in local/unauthenticated mode.");
+                return;
+            }
+
+            if (!userId) {
+                console.error("User not authenticated. Cannot submit score.");
+                return;
+            }
+
+            const totalSets = allEliminationSets.length;
+            const correctMatches = totalSets; // 21
+            
+            // 準確度: (正確組數 * 3 / 總嘗試次數)
+            const accuracy = (correctMatches * 3) / attempts; 
+            // 排名分數: 準確度高優先，時間短次之 (使用 1000 倍權重給準確度)
+            const rankingScore = Math.floor(accuracy * 1000) - timeTaken; 
+
+            const scoreData = {
+                userId: userId,
+                seatNumber: seatNumber,
+                totalTimeSeconds: timeTaken,
+                totalCorrectMatches: correctMatches,
+                totalAttempts: attempts,
+                accuracy: parseFloat(accuracy.toFixed(4)),
+                rankingScore: rankingScore,
+                completionTimestamp: new Date().toISOString()
+            };
+            
+            // 使用交易確保只儲存最佳成績 (基於 rankingScore)
+            const userDocRef = window.firebase.doc(leaderboardRef, userId);
+            
+            try {
+                await window.firebase.runTransaction(window.firebase.db, async (transaction) => {
+                    const currentDoc = await transaction.get(userDocRef);
+                    
+                    if (!currentDoc.exists || currentDoc.data().rankingScore < rankingScore) {
+                        // 如果文件不存在，或新分數更好，則更新
+                        transaction.set(userDocRef, scoreData);
+                        console.log("New best score submitted:", rankingScore);
+                    } else {
+                        console.log("Current score is not better than existing best score.", currentDoc.data().rankingScore);
+                    }
+                });
+            } catch (error) {
+                console.error("Transaction failed:", error);
+            }
+        }
+
+        // --- 遊戲邏輯函數 ---
+
+        // 輔助函數：根據關卡號取得形近字組
+        function getLevelSets(level) {
+            const def = levelDefinitions[level];
+            if (!def) return [];
+            return allEliminationSets.slice(def.start, def.end);
+        }
+
+        // 輔助函數：根據當前關卡生成所有卡片項目
+        function generateAllItems() {
+            let tempItems = [];
+            currentLevelSets.forEach(set => {
+                set.items.forEach((text, index) => {
+                    tempItems.push({
+                        id: `${set.category}-${index}`,
+                        text: text,
+                        category: set.category,
+                        type: (index === 0) ? 'char' : 'word',
+                        isEliminated: false
+                    });
+                });
+            });
+            return tempItems;
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // 核心：初始化或重啟遊戲 (可指定關卡)
+        function initGame(level = 1) {
+            if (!userId) {
+                loginScreen.classList.remove('hidden');
+                gameMainContent.classList.add('hidden');
+                return;
+            }
+
+            // 遊戲初始化
+            currentLevel = level;
+            currentLevelSets = getLevelSets(currentLevel);
+
+            if (currentLevelSets.length === 0) {
+                 return;
+            }
+
+            allItems = shuffleArray(generateAllItems());
+            selectedCards = [];
+            score = 0;
+            gameBoard.innerHTML = '';
+            successMessage.classList.add('hidden');
+            levelUpMessage.classList.add('hidden');
+            
+            document.getElementById('fireworks-container').style.display = 'none';
+            document.getElementById('fireworks-container').innerHTML = '';
+            
+            updateUI();
+            
+            // 如果是第一關，重新計時並重設總嘗試次數
+            if (currentLevel === 1) {
+                totalAttempts = 0;
+                startTimer();
+            }
+
+            allItems.forEach(item => {
+                const card = document.createElement('div');
+                card.id = item.id;
+                card.textContent = item.text;
+                card.dataset.category = item.category;
+                card.dataset.type = item.type;
+                card.className = `item-card p-2 h-28 flex items-center justify-center text-center rounded-xl font-bold shadow-md ${item.type === 'char' ? 'char-card text-3xl' : 'word-card'}`;
+                card.addEventListener('click', handleCardClick);
+                gameBoard.appendChild(card);
+            });
+        }
+
+        function updateUI() {
+            scoreDisplay.textContent = score;
+            totalSetsDisplay.textContent = currentLevelSets.length; 
+            levelDisplay.textContent = `第 ${currentLevel} 關`;
+            currentSeatNumberDisplay.textContent = seatNumber || '--';
+
+            selectedList.innerHTML = '';
+
+            if (selectedCards.length === 0) {
+                selectedList.innerHTML = '<p class="text-sm text-gray-400">尚未選擇卡片...</p>';
+            } else {
+                selectedCards.forEach(card => {
+                    const listItem = document.createElement('div');
+                    listItem.textContent = card.textContent;
+                    listItem.className = 'text-sm p-1 rounded bg-gray-50 border text-gray-700';
+                    selectedList.appendChild(listItem);
+                });
+            }
+        }
+        
+        // 顯示浮動回饋圖示
+        function showFeedback(emoji) {
+            const icon = document.getElementById('feedback-icon');
+            icon.textContent = emoji;
+            icon.style.opacity = '1';
+            icon.style.transform = 'translate(-50%, -50%) scale(1.2)';
+
+            setTimeout(() => {
+                icon.style.opacity = '0';
+                icon.style.transform = 'translate(-50%, -50%) scale(1)';
+            }, 700);
+        }
+
+        // 關卡晉級動畫/訊息
+        function showLevelTransition() {
+            const def = levelDefinitions[currentLevel];
+            const nextLevel = currentLevel + 1;
+
+            document.getElementById('level-up-text').textContent = def.encouragement;
+            document.getElementById('next-level-btn').textContent = `開始第 ${nextLevel} 關`;
+
+            levelUpMessage.classList.remove('hidden');
+
+            document.getElementById('next-level-btn').onclick = () => {
+                levelUpMessage.classList.add('hidden');
+                initGame(nextLevel); // 開始下一關
+            };
+        }
+        
+        // 煙火
+        function createFirework(x, y) {
+            const container = document.getElementById('fireworks-container');
+            const colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'];
+            
+            for (let i = 0; i < 20; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'firework';
+                
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                const delay = Math.random() * 0.5;
+
+                particle.style.backgroundColor = color;
+                particle.style.boxShadow = `0 0 10px ${color}`;
+                
+                const offsetX = (Math.random() - 0.5) * 200;
+                const offsetY = (Math.random() - 0.5) * 200;
+
+                particle.style.left = `${x + offsetX}px`;
+                particle.style.top = `${y + offsetY}px`;
+                particle.style.animationDelay = `${delay}s`;
+
+                container.appendChild(particle);
+
+                particle.addEventListener('animationend', () => particle.remove());
+            }
+        }
+
+        // 啟動煙火秀
+        function startFireworks() {
+            const container = document.getElementById('fireworks-container');
+            container.style.display = 'block';
+
+            const duration = 3000;
+            const startTime = Date.now();
+            
+            const interval = setInterval(() => {
+                if (Date.now() - startTime > duration) {
+                    clearInterval(interval);
+                    container.style.display = 'none'; 
+                    container.innerHTML = ''; 
+                    return;
+                }
+                
+                const x = Math.random() * window.innerWidth;
+                const y = Math.random() * window.innerHeight * 0.7; 
+                createFirework(x, y);
+            }, 200);
+        }
+
+        function handleCardClick(e) {
+            const card = e.target;
+            if (card.classList.contains('eliminated')) return;
+
+            if (card.classList.contains('selected')) {
+                // 取消選擇
+                card.classList.remove('selected');
+                selectedCards = selectedCards.filter(c => c.id !== card.id);
+            } else {
+                // 選擇
+                if (selectedCards.length < 3) {
+                    card.classList.add('selected');
+                    selectedCards.push(card);
+                }
+            }
+            
+            updateUI();
+
+            if (selectedCards.length === 3) {
+                totalAttempts++; // 每次檢查計數
+                setTimeout(checkMatch, 300);
+            }
+        }
+
+        function checkMatch() {
+            const categories = selectedCards.map(c => c.dataset.category);
+            const types = selectedCards.map(c => c.dataset.type);
+            const maxLevel = Object.keys(levelDefinitions).length;
+
+            const isSameCategory = categories.every(cat => cat === categories[0]);
+            
+            const typeCounts = types.reduce((acc, type) => {
+                acc[type] = (acc[type] || 0) + 1;
+                return acc;
+            }, {});
+
+            const isCorrectTypeSet = isSameCategory && typeCounts.char === 1 && typeCounts.word === 2;
+            
+            if (isCorrectTypeSet) {
+                // 成功: 消除這一組
+                showFeedback('👏');
+                score++;
+                selectedCards.forEach(card => {
+                    card.classList.remove('selected');
+                    card.classList.add('eliminated', 'opacity-0');
+                    card.style.transform = 'scale(0.5)';
+                    card.removeEventListener('click', handleCardClick);
+                    setTimeout(() => card.style.display = 'none', 500);
+                });
+                
+                if (score === currentLevelSets.length) {
+                    // 關卡或遊戲勝利
+                    if (currentLevel < maxLevel) {
+                        // 關卡勝利：顯示晉級訊息
+                        setTimeout(() => showLevelTransition(), 600);
+                    } else {
+                        // 遊戲總勝利 (第三關完成)
+                        stopTimer(); // 停止計時
+                        const finalTime = totalTimeSeconds;
+                        const finalAttempts = totalAttempts;
+                        const totalCorrectMatches = allEliminationSets.length; // 總組數：21
+
+                        // 顯示最終統計數據
+                        const accuracy = (totalCorrectMatches * 3) / finalAttempts;
+                        document.getElementById('final-stats').textContent = 
+                            `總時間：${formatTime(finalTime)}，正確率：${Math.round(accuracy * 100)}%`;
+                            
+                        // 顯示本地模式警告
+                        if (window.firebase.isLocalFile) {
+                             localScoreWarning.classList.remove('hidden');
+                        } else {
+                             localScoreWarning.classList.add('hidden');
+                        }
+
+                        startFireworks();
+                        setTimeout(() => successMessage.classList.remove('hidden'), 600);
+                        
+                        // 提交分數到排行榜 (內部會檢查是否為本地模式)
+                        submitScore(finalTime, finalAttempts);
+                    }
+                }
+
+            } else {
+                // 失敗: 錯誤動畫
+                showFeedback('❌');
+                selectedCards.forEach(card => {
+                    card.classList.add('error');
+                    card.classList.remove('selected');
+                });
+                setTimeout(() => {
+                    selectedCards.forEach(card => card.classList.remove('error'));
+                }, 500);
+            }
+
+            // 檢查後重設選擇
+            selectedCards = [];
+            updateUI();
+        }
+
+        // 登入並開始遊戲 (已修改以適應本地模式)
+        async function authenticateAndStartGame() {
+            const input = seatNumberInput.value.trim();
+            if (!input || isNaN(parseInt(input)) || parseInt(input) <= 0) {
+                alert("請輸入有效的座號 (正整數)。");
+                return;
+            }
+
+            seatNumber = input.padStart(2, '0');
+            
+            if (window.firebase.isLocalFile) {
+                // **本地模式處理：設置虛擬用戶 ID，並跳過所有 Firebase 驗證**
+                userId = `LOCAL_PLAYER_${seatNumber}`;
+                console.warn("Detected local file execution. Running in offline/local mode.");
+            } else {
+                // **線上模式處理：執行 Firebase 驗證**
+                userId = await window.firebase.authReadyPromise; 
+                if (!userId) {
+                    console.error("Firebase authentication failed. Cannot start game.");
+                    alert("無法連線到資料庫，請檢查連線或重試。");
+                    return;
+                }
+            }
+            
+            // 隱藏登入畫面，顯示遊戲主體
+            loginScreen.classList.add('hidden');
+            gameMainContent.classList.remove('hidden');
+
+            // 開始遊戲
+            initGame(1);
+            // 無論是否連線，都嘗試抓取排行榜（fetchLeaderboard 內部會檢查 isLocalFile）
+            fetchLeaderboard(); 
+        }
+
+        // 事件監聽器與啟動
+        document.addEventListener('DOMContentLoaded', () => {
+            // 如果是本地模式，先更新排行榜狀態
+            if (window.firebase.isLocalFile) {
+                leaderboardStatus.textContent = '❌ 本地模式：無法連線到排行榜';
+            }
+            
+            // 登入按鈕
+            startGameBtn.addEventListener('click', authenticateAndStartGame);
+            
+            // 允許按 Enter 鍵登入
+            seatNumberInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    authenticateAndStartGame();
+                }
+            });
+
+            // 遊戲內的重置按鈕
+            resetButton.addEventListener('click', () => {
+                // 重置時確保停止計時
+                stopTimer();
+                // 從第一關重新開始
+                initGame(1); 
+            }); 
+            
+            // 最終勝利畫面上的重置按鈕
+            finalResetButton.addEventListener('click', () => {
+                successMessage.classList.add('hidden');
+                // 從第一關重新開始
+                initGame(1); 
+            });
+            
+            // 啟動時預設顯示登入畫面，等待使用者輸入座號
+            loginScreen.classList.remove('hidden');
+            gameMainContent.classList.add('hidden');
+        });
+    </script>
+</body>
+</html>
