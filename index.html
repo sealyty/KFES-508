@@ -6,74 +6,42 @@
     <title>形近字配對消除遊戲</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase 匯入 -->
+    <!-- Firebase 匯入 (僅為保持結構完整性，在 GitHub Pages 上將不會連線) -->
     <script type="module">
-        // **此區塊負責處理線上/本地模式判斷，確保在本機開啟時不會發生錯誤**
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, query, orderBy, limit, doc, setDoc, onSnapshot, getDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // ** GitHub Pages/本地模式修復：強制設定為本地模式，跳過所有 Firebase 登入邏輯 **
         
-        // 確保全局變數存在
-        window.__app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        window.__firebase_config = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}';
-        window.__initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // 模擬必要的全域變數
+        window.__app_id = 'default-app-id';
+        window.__firebase_config = '{}';
+        window.__initial_auth_token = null;
 
-        const firebaseConfig = JSON.parse(window.__firebase_config);
+        // 檢查是否為本地檔案協定 (在 GitHub Pages 上也是視為非外部平台的環境)
+        const isLocalFile = true; // 強制設為 true，模擬離線或外部託管
         
-        // 檢查是否為本地檔案協定
-        const isLocalFile = window.location.protocol === 'file:';
-        
-        // 只有在非本地模式且有 config 時才初始化 Firebase
-        if (!isLocalFile && Object.keys(firebaseConfig).length > 0 && !window.firebaseApp) {
-            window.firebaseApp = initializeApp(firebaseConfig);
-            window.db = getFirestore(window.firebaseApp);
-            window.auth = getAuth(window.firebaseApp);
-        }
-        
-        // 將必要的 Firebase 函數暴露給全局範圍
+        // 確保全局物件存在，但所有函數都是空的或返回 null
         window.firebase = {
-            auth: window.auth,
-            db: window.db,
+            auth: null,
+            db: null,
             appId: window.__app_id,
             initialAuthToken: window.__initial_auth_token,
-            signInAnonymously: signInAnonymously,
-            signInWithCustomToken: signInWithCustomToken,
-            onAuthStateChanged: onAuthStateChanged,
-            collection: collection,
-            query: query,
-            orderBy: orderBy,
-            limit: limit,
-            doc: doc,
-            setDoc: setDoc,
-            onSnapshot: onSnapshot,
-            getDoc: getDoc,
-            runTransaction: runTransaction,
             isLocalFile: isLocalFile, // 傳遞本地檔案狀態
+
+            // 模擬 Firebase 函數，確保程式碼調用時不會崩潰
+            authReadyPromise: Promise.resolve('LOCAL_USER_ID'), 
+            collection: () => null,
+            query: () => null,
+            onSnapshot: (q, cb, err) => {
+                // 在本地模式下，立即返回錯誤或空列表
+                if (err) err(new Error("Local mode: Cannot connect to Firestore."));
+                return () => {}; // 返回一個空的unsubscribe函數
+            },
+            runTransaction: async (db, cb) => {
+                 console.warn("Local mode: Skipping Firestore transaction (score submission).");
+                 return;
+            },
+            signInAnonymously: async () => ({ user: { uid: 'LOCAL_USER_ID' } }),
+            signInWithCustomToken: async () => ({ user: { uid: 'LOCAL_USER_ID' } }),
         };
-        
-        // Promise 僅在非本地模式下使用
-        if (!isLocalFile) {
-            window.firebase.authReadyPromise = new Promise(resolve => {
-                window.firebase.onAuthStateChanged(window.auth, (user) => {
-                    if (!user) {
-                        (async () => {
-                            try {
-                                if (window.firebase.initialAuthToken) {
-                                    await window.firebase.signInWithCustomToken(window.auth, window.firebase.initialAuthToken);
-                                } else {
-                                    await window.firebase.signInAnonymously(window.auth);
-                                }
-                            } catch (e) {
-                                console.error("Initial Firebase sign-in attempt failed:", e);
-                            }
-                            resolve(window.auth.currentUser?.uid || null);
-                        })();
-                    } else {
-                        resolve(user.uid);
-                    }
-                });
-            });
-        }
     </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -139,7 +107,7 @@
     <div id="login-screen" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
         <div class="bg-white p-8 md:p-12 rounded-xl text-center shadow-2xl w-11/12 max-w-sm">
             <h2 class="text-3xl font-extrabold text-blue-600 mb-6">歡迎挑戰！</h2>
-            <p class="text-gray-600 mb-4">請輸入您的 **座號** 以開始遊戲並參與排名：</p>
+            <p class="text-gray-600 mb-4">請輸入您的 **座號** 以開始遊戲：</p>
             <input type="number" id="seat-number-input" placeholder="例如：05" class="w-full p-3 border-4 border-yellow-400 rounded-lg text-2xl text-center font-mono focus:outline-none focus:border-blue-500 transition-colors mb-6" min="1" max="99">
             <button id="start-game-btn" class="w-full bg-green-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-600 transition-colors shadow-md">開始挑戰</button>
         </div>
@@ -153,7 +121,7 @@
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <!-- Instructions and Status & Leaderboard -->
+            <!-- Instructions and Status -->
             <div class="md:col-span-1 bg-gray-50 p-5 rounded-xl border border-gray-200 h-fit">
                 
                 <!-- 關卡狀態 -->
@@ -171,13 +139,7 @@
                 
                 <button id="reset-btn" class="w-full mt-6 bg-blue-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors shadow-md">重新開始 (從第 1 關)</button>
                 
-                <!-- 排行榜 -->
-                <div id="leaderboard-container" class="mt-8">
-                    <h3 class="text-2xl font-bold text-yellow-600 mb-3 border-b-2 border-yellow-400 pb-2">🏆 排行榜 (最佳得分)</h3>
-                    <ul id="leaderboard-list" class="space-y-2 text-left">
-                        <li class="text-gray-500" id="leaderboard-status">載入中...</li>
-                    </ul>
-                </div>
+                <!-- 排行榜區塊已移除 -->
             </div>
 
             <!-- Game Board -->
@@ -207,10 +169,11 @@
         <div id="success-message" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
             <div class="bg-white p-10 rounded-xl text-center shadow-2xl">
                 <h2 class="text-4xl font-extrabold text-green-700 mb-4">🎉 恭喜！挑戰成功！ 🎉</h2>
-                <p id="final-stats" class="text-xl text-gray-700 mb-6 font-bold">總時間：--，正確率：--</p>
-                <p id="local-score-warning" class="text-sm text-red-500 mb-6 hidden">
-                    （注意：本地模式下，此分數不會被記錄到排行榜中。）
+                <!-- final-stats 結構 -->
+                <p id="final-stats" class="text-xl text-gray-700 mb-6 font-bold flex flex-col md:flex-row justify-center gap-2 md:gap-8">
+                    <!-- 統計數據將由 JavaScript 注入 -->
                 </p>
+                <!-- 移除 id="local-score-warning" 的段落 -->
                 <button id="final-reset-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors">再玩一次 (重置)</button>
             </div>
         </div>
@@ -258,8 +221,8 @@
         let allItems = [];
         let selectedCards = [];
         let score = 0;
-        let totalAttempts = 0; // 新增：總檢查次數
-        let gameStartTime = null; // 新增：遊戲開始時間
+        let totalAttempts = 0; 
+        let gameStartTime = null; 
         let timerInterval = null;
         let totalTimeSeconds = 0;
 
@@ -283,19 +246,9 @@
         const nextLevelButton = document.getElementById('next-level-btn');
         const timerDisplay = document.getElementById('timer');
         const currentSeatNumberDisplay = document.getElementById('current-seat-number');
-        const leaderboardList = document.getElementById('leaderboard-list');
-        const leaderboardStatus = document.getElementById('leaderboard-status');
-        const localScoreWarning = document.getElementById('local-score-warning');
 
 
-        // --- Firebase/Firestore 相關函數 ---
-
-        // 排行榜資料庫路徑
-        const getLeaderboardRef = () => {
-            if (window.firebase.isLocalFile || !window.firebase.db) return null;
-            const path = `/artifacts/${window.firebase.appId}/public/data/leaderboard_scores`;
-            return window.firebase.collection(window.firebase.db, path);
-        };
+        // --- Firebase/Firestore 相關函數 (本地模式下禁用) ---
 
         // 格式化時間 (秒數轉為 MM:SS)
         const formatTime = (seconds) => {
@@ -324,125 +277,9 @@
             timerInterval = null;
         }
 
-        // 抓取並顯示排行榜
-        function fetchLeaderboard() {
-            const leaderboardRef = getLeaderboardRef();
-            if (!leaderboardRef) {
-                // 如果是本地模式或未連線，跳過排行榜
-                leaderboardStatus.textContent = '❌ 本地模式：無法連線到排行榜';
-                leaderboardList.innerHTML = `<li class="text-red-500 font-bold">請將檔案上傳至伺服器以啟用排名。</li>`;
-                return;
-            }
-            
-            leaderboardStatus.textContent = '載入中...';
-
-            const q = window.firebase.query(
-                leaderboardRef,
-                window.firebase.orderBy("rankingScore", "desc"),
-                window.firebase.limit(10) // 顯示前 10 名
-            );
-
-            // 實時監聽排行榜變化
-            window.firebase.onSnapshot(q, (snapshot) => {
-                const scores = [];
-                snapshot.forEach((doc) => {
-                    scores.push(doc.data());
-                });
-
-                leaderboardList.innerHTML = '';
-                leaderboardStatus.textContent = ''; // 清除狀態
-
-                if (scores.length === 0) {
-                    leaderboardList.innerHTML = '<li class="text-gray-500">尚無排名數據。</li>';
-                    return;
-                }
-
-                scores.forEach((scoreData, index) => {
-                    const li = document.createElement('li');
-                    const rank = index + 1;
-                    const isCurrentUser = scoreData.userId === userId;
-                    
-                    // 排名分數 = (正確組數 * 3 / 總嘗試次數) * 1000 - 總時間
-                    const accuracy = (scoreData.totalCorrectMatches * 3) / scoreData.totalAttempts;
-
-                    let rankClass = 'text-gray-700 font-medium';
-                    let rankIcon = '🔸';
-                    if (rank === 1) { rankClass = 'text-yellow-600 font-extrabold text-lg'; rankIcon = '🥇'; }
-                    else if (rank === 2) { rankClass = 'text-gray-600 font-bold'; rankIcon = '🥈'; }
-                    else if (rank === 3) { rankClass = 'text-yellow-700 font-semibold'; rankIcon = '🥉'; }
-
-                    if (isCurrentUser) {
-                        rankClass += ' bg-yellow-100 p-1 rounded-md border-2 border-yellow-500'; // 突顯當前玩家
-                    }
-                    
-                    li.className = rankClass + ' flex justify-between items-center';
-                    li.innerHTML = `
-                        <span class="truncate">
-                            ${rankIcon} ${scoreData.seatNumber} 號
-                            ${isCurrentUser ? ' (您)' : ''}
-                        </span>
-                        <span class="text-sm text-gray-500 ml-2">
-                            ${formatTime(scoreData.totalTimeSeconds)} / ${Math.round(accuracy * 100)}%
-                        </span>
-                    `;
-                    leaderboardList.appendChild(li);
-                });
-            }, (error) => {
-                console.error("Failed to fetch leaderboard (Permission Error likely):", error);
-                leaderboardList.innerHTML = '<li class="text-red-500">排行榜載入失敗 (權限或連線錯誤)。</li>';
-            });
-        }
-
-        // 提交最佳得分到 Firestore
+        // 提交最佳得分到 Firestore (本地模式下跳過)
         async function submitScore(timeTaken, attempts) {
-            const leaderboardRef = getLeaderboardRef();
-            if (!leaderboardRef) {
-                console.warn("Skipping score submission in local/unauthenticated mode.");
-                return;
-            }
-
-            if (!userId) {
-                console.error("User not authenticated. Cannot submit score.");
-                return;
-            }
-
-            const totalSets = allEliminationSets.length;
-            const correctMatches = totalSets; // 21
-            
-            // 準確度: (正確組數 * 3 / 總嘗試次數)
-            const accuracy = (correctMatches * 3) / attempts; 
-            // 排名分數: 準確度高優先，時間短次之 (使用 1000 倍權重給準確度)
-            const rankingScore = Math.floor(accuracy * 1000) - timeTaken; 
-
-            const scoreData = {
-                userId: userId,
-                seatNumber: seatNumber,
-                totalTimeSeconds: timeTaken,
-                totalCorrectMatches: correctMatches,
-                totalAttempts: attempts,
-                accuracy: parseFloat(accuracy.toFixed(4)),
-                rankingScore: rankingScore,
-                completionTimestamp: new Date().toISOString()
-            };
-            
-            // 使用交易確保只儲存最佳成績 (基於 rankingScore)
-            const userDocRef = window.firebase.doc(leaderboardRef, userId);
-            
-            try {
-                await window.firebase.runTransaction(window.firebase.db, async (transaction) => {
-                    const currentDoc = await transaction.get(userDocRef);
-                    
-                    if (!currentDoc.exists || currentDoc.data().rankingScore < rankingScore) {
-                        // 如果文件不存在，或新分數更好，則更新
-                        transaction.set(userDocRef, scoreData);
-                        console.log("New best score submitted:", rankingScore);
-                    } else {
-                        console.log("Current score is not better than existing best score.", currentDoc.data().rankingScore);
-                    }
-                });
-            } catch (error) {
-                console.error("Transaction failed:", error);
-            }
+             console.warn(`[Local Mode] Score achieved: Time=${formatTime(timeTaken)}, Attempts=${attempts}. Score submission skipped.`);
         }
 
         // --- 遊戲邏輯函數 ---
@@ -474,7 +311,8 @@
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
+                // 修正：賦值號右側必須是陣列，否則會觸發 'object is not iterable' 錯誤
+                [array[i], array[j]] = [array[j], array[i]]; 
             }
             return array;
         }
@@ -482,6 +320,7 @@
         // 核心：初始化或重啟遊戲 (可指定關卡)
         function initGame(level = 1) {
             if (!userId) {
+                // 如果沒有 userId，則顯示登入畫面
                 loginScreen.classList.remove('hidden');
                 gameMainContent.classList.add('hidden');
                 return;
@@ -684,24 +523,39 @@
                         stopTimer(); // 停止計時
                         const finalTime = totalTimeSeconds;
                         const finalAttempts = totalAttempts;
-                        const totalCorrectMatches = allEliminationSets.length; // 總組數：21
+                        const totalCorrectSets = allEliminationSets.length; // 總組數：21
 
-                        // 顯示最終統計數據
-                        const accuracy = (totalCorrectMatches * 3) / finalAttempts;
-                        document.getElementById('final-stats').textContent = 
-                            `總時間：${formatTime(finalTime)}，正確率：${Math.round(accuracy * 100)}%`;
+                        // 1. 計算正確率 (Correct Rate)
+                        // totalAttempts 是檢查的組數，totalCorrectSets 是成功消除的組數 (21)
+                        const correctRate = totalCorrectSets / finalAttempts;
+                        const accuracyPercentage = Math.round(correctRate * 100);
+
+                        // 2. 計算綜合分數 (Performance Score)
+                        // 錯誤嘗試次數 = 總嘗試次數 - 成功組數
+                        const wrongAttempts = finalAttempts - totalCorrectSets;
+                        
+                        // 定義懲罰權重 
+                        const timePenaltyWeight = 1;    // 每秒扣 1 點
+                        const mistakePenaltyWeight = 10; // 每錯誤一組扣 10 點
+
+                        const totalPenalty = (finalTime * timePenaltyWeight) + (wrongAttempts * mistakePenaltyWeight);
+                        const baseScore = 10000; 
+                        
+                        // 最終得分：最低為 0
+                        let finalScore = Math.max(0, Math.floor(baseScore - totalPenalty)); 
+
+                        // 3. 顯示最終統計數據 (加入分數)
+                        document.getElementById('final-stats').innerHTML = 
+                            `<span class="text-lg md:text-xl font-bold">總時間：<span class="text-blue-600">${formatTime(finalTime)}</span></span> | 
+                             <span class="text-lg md:text-xl font-bold">正確率：<span class="text-green-600">${accuracyPercentage}%</span></span> | 
+                             <span class="text-2xl md:text-3xl text-red-600 font-extrabold">得分：${finalScore}</span>`;
                             
-                        // 顯示本地模式警告
-                        if (window.firebase.isLocalFile) {
-                             localScoreWarning.classList.remove('hidden');
-                        } else {
-                             localScoreWarning.classList.add('hidden');
-                        }
-
+                        // 移除 localScoreWarning 相關邏輯
+                        
                         startFireworks();
                         setTimeout(() => successMessage.classList.remove('hidden'), 600);
                         
-                        // 提交分數到排行榜 (內部會檢查是否為本地模式)
+                        // 提交分數到 Firestore (本地模式下跳過)
                         submitScore(finalTime, finalAttempts);
                     }
                 }
@@ -723,47 +577,31 @@
             updateUI();
         }
 
-        // 登入並開始遊戲 (已修改以適應本地模式)
+        // 登入並開始遊戲 (已修改為本地模式)
         async function authenticateAndStartGame() {
             const input = seatNumberInput.value.trim();
             if (!input || isNaN(parseInt(input)) || parseInt(input) <= 0) {
-                alert("請輸入有效的座號 (正整數)。");
+                // 由於不能使用 alert()，這裡將使用 console.error 或其他 UI 提示
+                console.error("請輸入有效的座號 (正整數)。");
                 return;
             }
 
             seatNumber = input.padStart(2, '0');
             
-            if (window.firebase.isLocalFile) {
-                // **本地模式處理：設置虛擬用戶 ID，並跳過所有 Firebase 驗證**
-                userId = `LOCAL_PLAYER_${seatNumber}`;
-                console.warn("Detected local file execution. Running in offline/local mode.");
-            } else {
-                // **線上模式處理：執行 Firebase 驗證**
-                userId = await window.firebase.authReadyPromise; 
-                if (!userId) {
-                    console.error("Firebase authentication failed. Cannot start game.");
-                    alert("無法連線到資料庫，請檢查連線或重試。");
-                    return;
-                }
-            }
-            
+            // **本地模式處理：設置虛擬用戶 ID，並跳過所有 Firebase 驗證**
+            userId = `LOCAL_PLAYER_${seatNumber}`;
+            console.warn("Running in offline/local mode on GitHub Pages.");
+
             // 隱藏登入畫面，顯示遊戲主體
             loginScreen.classList.add('hidden');
             gameMainContent.classList.remove('hidden');
 
             // 開始遊戲
             initGame(1);
-            // 無論是否連線，都嘗試抓取排行榜（fetchLeaderboard 內部會檢查 isLocalFile）
-            fetchLeaderboard(); 
         }
 
         // 事件監聽器與啟動
         document.addEventListener('DOMContentLoaded', () => {
-            // 如果是本地模式，先更新排行榜狀態
-            if (window.firebase.isLocalFile) {
-                leaderboardStatus.textContent = '❌ 本地模式：無法連線到排行榜';
-            }
-            
             // 登入按鈕
             startGameBtn.addEventListener('click', authenticateAndStartGame);
             
@@ -793,6 +631,3 @@
             loginScreen.classList.remove('hidden');
             gameMainContent.classList.add('hidden');
         });
-    </script>
-</body>
-</html>
