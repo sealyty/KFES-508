@@ -580,8 +580,17 @@
         // 登入並開始遊戲 (已修改為本地模式)
         async function authenticateAndStartGame() {
             const input = seatNumberInput.value.trim();
+            
+            // 移除舊的錯誤邊框類別
+            seatNumberInput.classList.remove('border-red-500'); 
+            seatNumberInput.classList.add('border-yellow-400'); // 恢復正常邊框
+
             if (!input || isNaN(parseInt(input)) || parseInt(input) <= 0) {
-                // 由於不能使用 alert()，這裡將使用 console.error 或其他 UI 提示
+                // 驗證失敗：給予視覺錯誤提示
+                seatNumberInput.classList.remove('border-yellow-400');
+                seatNumberInput.classList.add('border-red-500');
+                
+                // 由於不能使用 alert()，這裡將使用 console.error
                 console.error("請輸入有效的座號 (正整數)。");
                 return;
             }
@@ -608,6 +617,7 @@
             // 允許按 Enter 鍵登入
             seatNumberInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
+                    e.preventDefault(); // 阻止 Enter 鍵的預設行為 (如表單提交)
                     authenticateAndStartGame();
                 }
             });
@@ -631,3 +641,6 @@
             loginScreen.classList.remove('hidden');
             gameMainContent.classList.add('hidden');
         });
+    </script>
+</body>
+</html>
