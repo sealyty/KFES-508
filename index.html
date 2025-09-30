@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>形近字配對消除遊戲</title>
+    <title>形近字與成語配對消除遊戲</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase 匯入 (僅為保持結構完整性，在 GitHub Pages 上將不會連線) -->
+    <!-- Firebase 匯入 (本地模式模擬) -->
     <script type="module">
         // ** GitHub Pages/本地模式修復：強制設定為本地模式，跳過所有 Firebase 登入邏輯 **
         
@@ -36,8 +36,8 @@
                 return () => {}; // 返回一個空的unsubscribe函數
             },
             runTransaction: async (db, cb) => {
-                 console.warn("Local mode: Skipping Firestore transaction (score submission).");
-                 return;
+                console.warn("Local mode: Skipping Firestore transaction (score submission).");
+                return;
             },
             signInAnonymously: async () => ({ user: { uid: 'LOCAL_USER_ID' } }),
             signInWithCustomToken: async () => ({ user: { uid: 'LOCAL_USER_ID' } }),
@@ -53,6 +53,7 @@
             background-color: #f5f3f0;
             color: #4a4a4a;
         }
+        /* 遊戲卡片基礎樣式 */
         .item-card {
             cursor: pointer;
             transition: all 0.2s ease-in-out;
@@ -70,6 +71,7 @@
             box-shadow: 0 8px 20px -5px rgba(249, 115, 22, 0.5);
             opacity: 0.9;
         }
+        /* 形近字卡片樣式 (Level 1-3) */
         .item-card.char-card {
              background-color: #bae6fd;
              color: #0369a1;
@@ -79,14 +81,86 @@
              color: #a16207;
              font-size: 1.5rem; 
         }
+        /* 成語卡片樣式 (Level 4/5) */
+        .item-card.idiom-char {
+            background-color: #fce7f3; /* 淺粉紅 */
+            color: #be185d; /* 深粉紅 */
+            font-size: 2rem;
+        }
+        .item-card.idiom-explanation {
+            background-color: #d1fae5; /* 淺綠 */
+            color: #065f46; /* 深綠 */
+            font-size: 1.25rem;
+            line-height: 1.4;
+        }
+        
         .item-card.error {
             border-color: #ef4444;
             animation: shake 0.5s;
         }
         @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-            20%, 40%, 60%, 80% { transform: translateX(5px); }
+            0%, 100% { transform: translateX(0) scale(1.05); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-5px) scale(1.05); }
+            20%, 40%, 60%, 80% { transform: translateX(5px) scale(1.05); }
+        }
+        .item-card.eliminated {
+            transition: all 0.5s ease-out;
+            pointer-events: none;
+        }
+
+        /* 填空挑戰樣式 (Level 5) */
+        .sentence-container {
+            line-height: 2.5rem;
+        }
+        .blank {
+            display: inline-block;
+            min-width: 8rem; /* 確保有足夠空間顯示成語 */
+            height: 2.5rem;
+            vertical-align: middle;
+            border-bottom: 3px dashed #6b7280;
+            padding: 0 4px;
+            margin: 0 4px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1d4ed8; /* 藍色填充文字 */
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .blank:hover {
+            background-color: #eff6ff;
+        }
+        .blank.filled {
+            border-bottom: none;
+            cursor: default;
+        }
+        .blank.correct {
+            color: #059669;
+            background-color: #d1fae5;
+        }
+        .blank.incorrect {
+            color: #b91c1c;
+            background-color: #fee2e2;
+            animation: shake 0.5s;
+        }
+        .fill-in-idiom-bank .item-card {
+            font-size: 1.5rem;
+            min-width: 150px;
+            height: auto;
+            padding: 8px 12px;
+            opacity: 1;
+        }
+        .fill-in-idiom-bank .item-card.selected {
+            border-color: #1d4ed8;
+            background-color: #93c5fd; /* 選中時變藍 */
+            color: white;
+        }
+        .fill-in-idiom-bank .item-card.used {
+            opacity: 0.3;
+            pointer-events: none;
+            transform: none;
+            box-shadow: none;
+            border: 1px solid #ccc;
         }
 
         /* 煙火 CSS */
@@ -116,8 +190,8 @@
     <!-- 遊戲主體 -->
     <main id="game-main-content" class="w-full max-w-6xl mx-auto bg-white rounded-2xl shadow-xl p-6 md:p-10 hidden">
         <header class="text-center mb-8">
-            <h1 class="4xl md:text-5xl font-bold text-gray-800">形近字消消大挑戰</h1>
-            <p class="text-xl text-gray-600 mt-2">說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！</p>
+            <h1 class="4xl md:text-5xl font-bold text-gray-800">中文語文挑戰大會考</h1>
+            <p id="level-instruction" class="text-xl text-gray-600 mt-2">說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！</p>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -132,19 +206,25 @@
                 <p class="text-lg text-gray-600 mb-4">已消除組數：<span id="score" class="font-bold text-green-600 text-2xl">0</span> / <span id="total-sets">0</span></p>
                 <p class="text-lg text-gray-600 mb-4">計時：<span id="timer" class="font-bold text-gray-700 text-xl">00:00</span></p>
 
-                <h3 class="text-xl font-medium text-gray-700 mb-2">當前選擇</h3>
+                <h3 id="selected-title" class="text-xl font-medium text-gray-700 mb-2">當前選擇</h3>
                 <div id="selected-list" class="space-y-1 bg-white p-3 rounded-lg border">
                     <p class="text-sm text-gray-400">尚未選擇卡片...</p>
                 </div>
                 
                 <button id="reset-btn" class="w-full mt-6 bg-blue-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-600 transition-colors shadow-md">重新開始 (從第 1 關)</button>
-                
-                <!-- 排行榜區塊已移除 -->
             </div>
 
-            <!-- Game Board -->
+            <!-- Game Board / Level 5 Sentence Area -->
             <div id="game-board" class="md:col-span-3 bg-gray-100 p-6 rounded-xl min-h-[400px] grid grid-cols-3 gap-4 border border-gray-300">
-                <!-- Cards will be injected here -->
+                <!-- Cards or Sentences will be injected here -->
+            </div>
+            
+            <!-- Level 5 Idiom Bank Area -->
+            <div id="idiom-bank" class="md:col-span-4 bg-gray-50 p-4 rounded-xl border border-gray-200 hidden">
+                <h3 class="text-xl font-medium text-gray-700 mb-3">請選擇成語</h3>
+                <div id="fill-in-idiom-bank-cards" class="fill-in-idiom-bank flex flex-wrap justify-center gap-3">
+                    <!-- Idiom cards will be injected here for Level 5 -->
+                </div>
             </div>
         </div>
 
@@ -168,58 +248,80 @@
         <!-- 總勝利訊息 -->
         <div id="success-message" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden z-50">
             <div class="bg-white p-10 rounded-xl text-center shadow-2xl">
-                <h2 class="text-4xl font-extrabold text-green-700 mb-4">🎉 恭喜！挑戰成功！ 🎉</h2>
-                <!-- final-stats 結構 -->
+                <h2 class="text-4xl font-extrabold text-green-700 mb-4">🎉 恭喜！全挑戰成功！ 🎉</h2>
                 <p id="final-stats" class="text-xl text-gray-700 mb-6 font-bold flex flex-col md:flex-row justify-center gap-2 md:gap-8">
                     <!-- 統計數據將由 JavaScript 注入 -->
                 </p>
-                <!-- 移除 id="local-score-warning" 的段落 -->
                 <button id="final-reset-btn" class="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors">再玩一次 (重置)</button>
             </div>
         </div>
     </main>
 
     <script>
-        // *** 所有的形近字組 (共 21 組) ***
+        // *** 關卡資料定義 ***
+
+        // Level 1-3: 形近字三消 (共 21 組)
         const allEliminationSets = [
             // Level 1: Sets 1-6 (6 sets)
-            { category: '燈', items: ['燈', '___光', '挑___夜戰'], type: 'fire' }, // 1
-            { category: '澄', items: ['澄', '___清', '黃______'], type: 'water' }, // 2
-            { category: '橙', items: ['橙', '柳___', '紅___黃綠藍靛紫'], type: 'wood' }, // 3
-            { category: '樸', items: ['樸', '___實無華', '___素'], type: 'wood' }, // 4
-            { category: '僕', items: ['僕', '___人', '風塵______'], type: 'people' }, // 5
-            { category: '撲', items: ['撲', '___滅', '飛蛾___火'], type: 'hand' }, // 6
+            { category: '燈', items: ['燈', '___光', '挑___夜戰'], type: 'fire' },
+            { category: '澄', items: ['澄', '___清', '黃______'], type: 'water' },
+            { category: '橙', items: ['橙', '柳___', '紅___黃綠藍靛紫'], type: 'wood' },
+            { category: '樸', items: ['樸', '___實無華', '___素'], type: 'wood' },
+            { category: '僕', items: ['僕', '___人', '風塵______'], type: 'people' },
+            { category: '撲', items: ['撲', '___滅', '飛蛾___火'], type: 'hand' },
             // Level 2: Sets 7-13 (7 sets)
-            { category: '堆', items: ['堆', '___疊', '___積如山'], type: 'soil' }, // 7
-            { category: '推', items: ['推', '___三阻四', '___動'], type: 'hand' }, // 8
-            { category: '稚', items: ['稚', '幼___', '___嫩'], type: 'rice' }, // 9
-            { category: '撿', items: ['撿', '___拾', '___便宜'], type: 'hand' }, // 10
-            { category: '檢', items: ['檢', '突擊___查', '___驗'], type: 'wood' }, // 11
-            { category: '儉', items: ['儉', '節___', '省吃___用'], type: 'people' }, // 12
-            { category: '臉', items: ['臉', '___孔', '愁眉苦___'], type: 'meat' }, // 13
+            { category: '堆', items: ['堆', '___疊', '___積如山'], type: 'soil' },
+            { category: '推', items: ['推', '___三阻四', '___動'], type: 'hand' },
+            { category: '稚', items: ['稚', '幼___', '___嫩'], type: 'rice' },
+            { category: '撿', items: ['撿', '___拾', '___便宜'], type: 'hand' },
+            { category: '檢', items: ['檢', '突擊___查', '___驗'], type: 'wood' },
+            { category: '儉', items: ['儉', '節___', '省吃___用'], type: 'people' },
+            { category: '臉', items: ['臉', '___孔', '愁眉苦___'], type: 'meat' },
             // Level 3: Sets 14-21 (8 sets)
-            { category: '康', items: ['康', '健___', '___復'], type: 'house' }, // 14
-            { category: '慷', items: ['慷', '___慨', '___慨解囊'], type: 'heart' }, // 15
-            { category: '糠', items: ['糠', '米___', '糟___之妻'], type: 'rice' }, // 16
-            { category: '滋', items: ['滋', '___潤', '個中___味'], type: 'water' }, // 17
-            { category: '磁', items: ['磁', '___鐵', '___浮列車'], type: 'stone' }, // 18
-            { category: '慨', items: ['慨', '慷___', '感___'], type: 'heart' }, // 19
-            { category: '概', items: ['概', '大___', '___念'], type: 'wood' }, // 20
-            { category: '溉', items: ['溉', '灌___', '灌___工程'], type: 'heart' }, // 21
+            { category: '康', items: ['康', '健___', '___復'], type: 'house' },
+            { category: '慷', items: ['慷', '___慨', '___慨解囊'], type: 'heart' },
+            { category: '糠', items: ['糠', '米___', '糟___之妻'], type: 'rice' },
+            { category: '滋', items: ['滋', '___潤', '個中___味'], type: 'water' },
+            { category: '磁', items: ['磁', '___鐵', '___浮列車'], type: 'stone' },
+            { category: '慨', items: ['慨', '慷___', '感___'], type: 'heart' },
+            { category: '概', items: ['概', '大___', '___念'], type: 'wood' },
+            { category: '溉', items: ['溉', '灌___', '灌___工程'], type: 'heart' },
+        ];
+
+        // Level 4/5: 成語資料 (共 8 組)
+        const idiomSets = [
+            { idiom: '養精蓄銳', explanation: '保養精神，積蓄力量', correctBlanks: ['blank_3_2'] },
+            { idiom: '飲水思源', explanation: '比喻人不忘本', correctBlanks: ['blank_4_2'] },
+            { idiom: '養尊處優', explanation: '處在尊貴的地位，過著優越富裕的生活', correctBlanks: ['blank_2_1'] },
+            { idiom: '義正辭嚴', explanation: '義理正當，措詞嚴厲', correctBlanks: ['blank_4_1'] },
+            { idiom: '汗馬功勞', explanation: '指征戰的功勞，亦泛指一般的功勞', correctBlanks: ['blank_1_1'] },
+            { idiom: '怨聲載道', explanation: '形容群眾普遍的怨恨和不滿', correctBlanks: ['blank_2_2'] },
+            { idiom: '腰痠背痛', explanation: '腰部和背部痠痛', correctBlanks: ['blank_3_1'] },
+            { idiom: '任勞任怨', explanation: '做事負責，不辭勞苦、不怕嫌怨', correctBlanks: ['blank_1_2'] },
+        ];
+        
+        // 成語填空句子 (Level 5 專用)
+        const sentences = [
+            { id: 1, text: '這次園遊會能圓滿成功，除了全班同學同心協力，共同立下了<span class="blank" data-id="blank_1_1"></span>外，也多虧班級懂事長們<span class="blank" data-id="blank_1_2"></span>地幫忙規劃和執行，才能讓活動順利又好玩！' },
+            { id: 2, text: '那幾位<span class="blank" data-id="blank_2_1"></span>的主管，因為從不了解基層的工作狀況，常常做出不合理的決策，讓底下的員工<span class="blank" data-id="blank_2_2"></span>，對公司產生了許多不滿。' },
+            { id: 3, text: '比賽前夕練習了一整天，選手們都<span class="blank" data-id="blank_3_1"></span>，所以教練宣布今晚要好好<span class="blank" data-id="blank_3_2"></span>，明天才能拿出最好的表現。' },
+            { id: 4, text: '畢業典禮上，校長<span class="blank" data-id="blank_4_1"></span>地告誡所有畢業生，做人一定要<span class="blank" data-id="blank_4_2"></span>，永遠不要忘記老師們的教導與恩情。' }
         ];
 
         // 關卡定義：start (包含) 到 end (不包含)
         const levelDefinitions = {
-            1: { start: 0, end: 6, sets: 6, encouragement: "🎉 恭喜完成第一關！進入第二關挑戰進階形近字吧！" },
-            2: { start: 6, end: 13, sets: 7, encouragement: "🏆 太棒了！第二關挑戰成功！準備挑戰最後的魔王關！" },
-            3: { start: 13, end: 21, sets: 8, encouragement: null }
+            1: { start: 0, end: 6, sets: 6, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "🎉 恭喜完成第一關！進入第二關挑戰進階形近字吧！" },
+            2: { start: 6, end: 13, sets: 7, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "🏆 太棒了！第二關挑戰成功！準備挑戰最後的魔王關！" },
+            3: { start: 13, end: 21, sets: 8, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "✨ 成功通過形近字挑戰！接下來是成語大考驗！" },
+            4: { sets: 8, mode: '2-match', title: "成語解釋配對", data: idiomSets, instruction: "說明：點擊 **1 個成語** 和 **1 個正確解釋**，湊成一組後即可消除！", encouragement: "💡 完美配對！成語解釋難不倒你，準備填空吧！" },
+            5: { sets: 8, mode: 'fill-in', title: "成語填空挑戰", data: idiomSets, instruction: "說明：點擊下方 **成語卡**，再點擊上方句子中的 **空格** 將其填入。", encouragement: null }
         };
 
         // 遊戲狀態變數
         let currentLevel = 1;
-        let currentLevelSets = [];
-        let allItems = [];
-        let selectedCards = [];
+        let currentLevelSets = []; // For Level 1-4 matching data
+        let allItems = []; // For Level 1-4 card data
+        let selectedCards = []; // For Level 1-4 selected items
         let score = 0;
         let totalAttempts = 0; 
         let gameStartTime = null; 
@@ -229,6 +331,11 @@
         let userId = null;
         let seatNumber = null;
         
+        // Level 5 專用狀態
+        let selectedIdiom = null; // 儲存 Level 5 點擊的成語卡
+        let filledBlanks = {}; // 儲存 Level 5 已填入的空格: { 'blank_1_1': '汗馬功勞', ... }
+        let idiomBank = []; // Level 5 成語卡陣列
+
         // UI 元素
         const loginScreen = document.getElementById('login-screen');
         const gameMainContent = document.getElementById('game-main-content');
@@ -241,14 +348,18 @@
         const successMessage = document.getElementById('success-message');
         const levelUpMessage = document.getElementById('level-up-message');
         const levelDisplay = document.getElementById('current-level-display');
+        const levelInstruction = document.getElementById('level-instruction');
         const resetButton = document.getElementById('reset-btn');
         const finalResetButton = document.getElementById('final-reset-btn');
         const nextLevelButton = document.getElementById('next-level-btn');
         const timerDisplay = document.getElementById('timer');
         const currentSeatNumberDisplay = document.getElementById('current-seat-number');
+        const idiomBankContainer = document.getElementById('idiom-bank');
+        const idiomBankCardsContainer = document.getElementById('fill-in-idiom-bank-cards');
+        const selectedTitle = document.getElementById('selected-title');
 
 
-        // --- Firebase/Firestore 相關函數 (本地模式下禁用) ---
+        // --- 時間函數與分數提交 (本地模式下僅為計時器) ---
 
         // 格式化時間 (秒數轉為 MM:SS)
         const formatTime = (seconds) => {
@@ -282,31 +393,8 @@
              console.warn(`[Local Mode] Score achieved: Time=${formatTime(timeTaken)}, Attempts=${attempts}. Score submission skipped.`);
         }
 
-        // --- 遊戲邏輯函數 ---
 
-        // 輔助函數：根據關卡號取得形近字組
-        function getLevelSets(level) {
-            const def = levelDefinitions[level];
-            if (!def) return [];
-            return allEliminationSets.slice(def.start, def.end);
-        }
-
-        // 輔助函數：根據當前關卡生成所有卡片項目
-        function generateAllItems() {
-            let tempItems = [];
-            currentLevelSets.forEach(set => {
-                set.items.forEach((text, index) => {
-                    tempItems.push({
-                        id: `${set.category}-${index}`,
-                        text: text,
-                        category: set.category,
-                        type: (index === 0) ? 'char' : 'word',
-                        isEliminated: false
-                    });
-                });
-            });
-            return tempItems;
-        }
+        // --- 遊戲通用輔助函數 ---
 
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
@@ -317,73 +405,6 @@
             return array;
         }
 
-        // 核心：初始化或重啟遊戲 (可指定關卡)
-        function initGame(level = 1) {
-            if (!userId) {
-                // 如果沒有 userId，則顯示登入畫面
-                loginScreen.classList.remove('hidden');
-                gameMainContent.classList.add('hidden');
-                return;
-            }
-
-            // 遊戲初始化
-            currentLevel = level;
-            currentLevelSets = getLevelSets(currentLevel);
-
-            if (currentLevelSets.length === 0) {
-                 return;
-            }
-
-            allItems = shuffleArray(generateAllItems());
-            selectedCards = [];
-            score = 0;
-            gameBoard.innerHTML = '';
-            successMessage.classList.add('hidden');
-            levelUpMessage.classList.add('hidden');
-            
-            document.getElementById('fireworks-container').style.display = 'none';
-            document.getElementById('fireworks-container').innerHTML = '';
-            
-            updateUI();
-            
-            // 如果是第一關，重新計時並重設總嘗試次數
-            if (currentLevel === 1) {
-                totalAttempts = 0;
-                startTimer();
-            }
-
-            allItems.forEach(item => {
-                const card = document.createElement('div');
-                card.id = item.id;
-                card.textContent = item.text;
-                card.dataset.category = item.category;
-                card.dataset.type = item.type;
-                card.className = `item-card p-2 h-28 flex items-center justify-center text-center rounded-xl font-bold shadow-md ${item.type === 'char' ? 'char-card text-3xl' : 'word-card'}`;
-                card.addEventListener('click', handleCardClick);
-                gameBoard.appendChild(card);
-            });
-        }
-
-        function updateUI() {
-            scoreDisplay.textContent = score;
-            totalSetsDisplay.textContent = currentLevelSets.length; 
-            levelDisplay.textContent = `第 ${currentLevel} 關`;
-            currentSeatNumberDisplay.textContent = seatNumber || '--';
-
-            selectedList.innerHTML = '';
-
-            if (selectedCards.length === 0) {
-                selectedList.innerHTML = '<p class="text-sm text-gray-400">尚未選擇卡片...</p>';
-            } else {
-                selectedCards.forEach(card => {
-                    const listItem = document.createElement('div');
-                    listItem.textContent = card.textContent;
-                    listItem.className = 'text-sm p-1 rounded bg-gray-50 border text-gray-700';
-                    selectedList.appendChild(listItem);
-                });
-            }
-        }
-        
         // 顯示浮動回饋圖示
         function showFeedback(emoji) {
             const icon = document.getElementById('feedback-icon');
@@ -397,22 +418,6 @@
             }, 700);
         }
 
-        // 關卡晉級動畫/訊息
-        function showLevelTransition() {
-            const def = levelDefinitions[currentLevel];
-            const nextLevel = currentLevel + 1;
-
-            document.getElementById('level-up-text').textContent = def.encouragement;
-            document.getElementById('next-level-btn').textContent = `開始第 ${nextLevel} 關`;
-
-            levelUpMessage.classList.remove('hidden');
-
-            document.getElementById('next-level-btn').onclick = () => {
-                levelUpMessage.classList.add('hidden');
-                initGame(nextLevel); // 開始下一關
-            };
-        }
-        
         // 煙火
         function createFirework(x, y) {
             const container = document.getElementById('fireworks-container');
@@ -463,16 +468,51 @@
             }, 200);
         }
 
-        function handleCardClick(e) {
+        // 關卡晉級動畫/訊息
+        function showLevelTransition() {
+            const def = levelDefinitions[currentLevel];
+            const nextLevel = currentLevel + 1;
+
+            document.getElementById('level-up-text').textContent = def.encouragement;
+            document.getElementById('next-level-btn').textContent = `開始第 ${nextLevel} 關`;
+
+            levelUpMessage.classList.remove('hidden');
+
+            document.getElementById('next-level-btn').onclick = () => {
+                levelUpMessage.classList.add('hidden');
+                initGame(nextLevel); // 開始下一關
+            };
+        }
+
+
+        // --- Level 1-3 專用函數 (形近字三消) ---
+
+        // 輔助函數：根據當前關卡生成所有卡片項目 (Level 1-3)
+        function generate3EliminationItems(sets) {
+            let tempItems = [];
+            sets.forEach(set => {
+                set.items.forEach((text, index) => {
+                    tempItems.push({
+                        id: `${set.category}-${index}`,
+                        text: text,
+                        category: set.category,
+                        type: (index === 0) ? 'char' : 'word',
+                        isEliminated: false
+                    });
+                });
+            });
+            return tempItems;
+        }
+
+        // 處理 Level 1-3 點擊事件
+        function handle3EliminationClick(e) {
             const card = e.target;
             if (card.classList.contains('eliminated')) return;
 
             if (card.classList.contains('selected')) {
-                // 取消選擇
                 card.classList.remove('selected');
                 selectedCards = selectedCards.filter(c => c.id !== card.id);
             } else {
-                // 選擇
                 if (selectedCards.length < 3) {
                     card.classList.add('selected');
                     selectedCards.push(card);
@@ -483,14 +523,14 @@
 
             if (selectedCards.length === 3) {
                 totalAttempts++; // 每次檢查計數
-                setTimeout(checkMatch, 300);
+                setTimeout(check3EliminationMatch, 300);
             }
         }
 
-        function checkMatch() {
+        // 檢查 Level 1-3 配對
+        function check3EliminationMatch() {
             const categories = selectedCards.map(c => c.dataset.category);
             const types = selectedCards.map(c => c.dataset.type);
-            const maxLevel = Object.keys(levelDefinitions).length;
 
             const isSameCategory = categories.every(cat => cat === categories[0]);
             
@@ -509,67 +549,16 @@
                     card.classList.remove('selected');
                     card.classList.add('eliminated', 'opacity-0');
                     card.style.transform = 'scale(0.5)';
-                    card.removeEventListener('click', handleCardClick);
+                    card.removeEventListener('click', handle3EliminationClick);
                     setTimeout(() => card.style.display = 'none', 500);
                 });
                 
-                if (score === currentLevelSets.length) {
-                    // 關卡或遊戲勝利
-                    if (currentLevel < maxLevel) {
-                        // 關卡勝利：顯示晉級訊息
-                        setTimeout(() => showLevelTransition(), 600);
-                    } else {
-                        // 遊戲總勝利 (第三關完成)
-                        stopTimer(); // 停止計時
-                        const finalTime = totalTimeSeconds;
-                        const finalAttempts = totalAttempts;
-                        const totalCorrectSets = allEliminationSets.length; // 總組數：21
-
-                        // 1. 計算正確率 (Correct Rate)
-                        // totalAttempts 是檢查的組數，totalCorrectSets 是成功消除的組數 (21)
-                        const correctRate = totalCorrectSets / finalAttempts;
-                        const accuracyPercentage = Math.round(correctRate * 100);
-
-                        // 2. 計算綜合分數 (Performance Score)
-                        // 錯誤嘗試次數 = 總嘗試次數 - 成功組數
-                        const wrongAttempts = finalAttempts - totalCorrectSets;
-                        
-                        // 定義懲罰權重 
-                        const timePenaltyWeight = 1;    // 每秒扣 1 點
-                        const mistakePenaltyWeight = 10; // 每錯誤一組扣 10 點
-
-                        const totalPenalty = (finalTime * timePenaltyWeight) + (wrongAttempts * mistakePenaltyWeight);
-                        const baseScore = 10000; 
-                        
-                        // 最終得分：最低為 0
-                        let finalScore = Math.max(0, Math.floor(baseScore - totalPenalty)); 
-
-                        // 3. 顯示最終統計數據 (加入分數)
-                        document.getElementById('final-stats').innerHTML = 
-                            `<span class="text-lg md:text-xl font-bold">總時間：<span class="text-blue-600">${formatTime(finalTime)}</span></span> | 
-                             <span class="text-lg md:text-xl font-bold">正確率：<span class="text-green-600">${accuracyPercentage}%</span></span> | 
-                             <span class="text-2xl md:text-3xl text-red-600 font-extrabold">得分：${finalScore}</span>`;
-                            
-                        // 移除 localScoreWarning 相關邏輯
-                        
-                        startFireworks();
-                        setTimeout(() => successMessage.classList.remove('hidden'), 600);
-                        
-                        // 提交分數到 Firestore (本地模式下跳過)
-                        submitScore(finalTime, finalAttempts);
-                    }
-                }
+                checkGameProgress();
 
             } else {
                 // 失敗: 錯誤動畫
                 showFeedback('❌');
-                selectedCards.forEach(card => {
-                    card.classList.add('error');
-                    card.classList.remove('selected');
-                });
-                setTimeout(() => {
-                    selectedCards.forEach(card => card.classList.remove('error'));
-                }, 500);
+                animateMatchError();
             }
 
             // 檢查後重設選擇
@@ -577,25 +566,446 @@
             updateUI();
         }
 
-        // 登入並開始遊戲 (已修改為本地模式)
-        async function authenticateAndStartGame() {
-            const input = seatNumberInput.value.trim();
-            
-            // 移除舊的錯誤邊框類別
-            seatNumberInput.classList.remove('border-red-500'); 
-            seatNumberInput.classList.add('border-yellow-400'); // 恢復正常邊框
+        // --- Level 4 專用函數 (成語解釋兩消) ---
 
-            if (!input || isNaN(parseInt(input)) || parseInt(input) <= 0) {
-                // 驗證失敗：給予視覺錯誤提示
-                seatNumberInput.classList.remove('border-yellow-400');
-                seatNumberInput.classList.add('border-red-500');
+        // 輔助函數：根據 Level 4 數據生成卡片
+        function generateLevel4Items(sets) {
+            let tempItems = [];
+            sets.forEach((set, index) => {
+                // 成語卡
+                tempItems.push({
+                    id: `idiom-${index}`,
+                    text: set.idiom,
+                    category: set.idiom, // 用成語本身作為類別
+                    type: 'idiom',
+                    isEliminated: false
+                });
+                // 解釋卡
+                tempItems.push({
+                    id: `explanation-${index}`,
+                    text: set.explanation,
+                    category: set.idiom, // 用成語本身作為類別
+                    type: 'explanation',
+                    isEliminated: false
+                });
+            });
+            return tempItems;
+        }
+
+        // 渲染 Level 4 卡片
+        function renderMatchingBoard(items) {
+            gameBoard.innerHTML = '';
+            items.forEach(item => {
+                const card = document.createElement('div');
+                card.id = item.id;
+                card.textContent = item.text;
+                card.dataset.category = item.category;
+                card.dataset.type = item.type;
+                card.className = `item-card p-3 h-28 flex items-center justify-center text-center rounded-xl font-bold shadow-md ${item.type === 'idiom' ? 'idiom-char' : 'idiom-explanation'}`;
+                card.addEventListener('click', handle2MatchClick);
+                gameBoard.appendChild(card);
+            });
+        }
+
+        // 處理 Level 4 點擊事件 (2-Match)
+        function handle2MatchClick(e) {
+            const card = e.target;
+            if (card.classList.contains('eliminated')) return;
+
+            if (card.classList.contains('selected')) {
+                card.classList.remove('selected');
+                selectedCards = selectedCards.filter(c => c.id !== card.id);
+            } else {
+                if (selectedCards.length < 2) {
+                    // 確保不能選擇兩個相同類型的卡片 (idiom + idiom 或 explanation + explanation)
+                    const isSameType = selectedCards.length === 1 && selectedCards[0].dataset.type === card.dataset.type;
+                    
+                    if (!isSameType) {
+                        card.classList.add('selected');
+                        selectedCards.push(card);
+                    }
+                }
+            }
+            
+            updateUI();
+
+            if (selectedCards.length === 2) {
+                totalAttempts++; // 每次檢查計數
+                setTimeout(check2Match, 300);
+            }
+        }
+
+        // 檢查 Level 4 配對
+        function check2Match() {
+            const [card1, card2] = selectedCards;
+
+            // 檢查條件：
+            // 1. 類別 (成語) 必須相同
+            // 2. 類型必須為一個 idiom (成語) 和一個 explanation (解釋)
+            const isMatch = card1.dataset.category === card2.dataset.category &&
+                            card1.dataset.type !== card2.dataset.type;
+
+            if (isMatch) {
+                // 成功: 消除這一組
+                showFeedback('✅');
+                score++;
+                selectedCards.forEach(card => {
+                    card.classList.remove('selected');
+                    card.classList.add('eliminated', 'opacity-0');
+                    card.style.transform = 'scale(0.5)';
+                    card.removeEventListener('click', handle2MatchClick);
+                    setTimeout(() => card.style.display = 'none', 500);
+                });
                 
-                // 由於不能使用 alert()，這裡將使用 console.error
-                console.error("請輸入有效的座號 (正整數)。");
+                checkGameProgress();
+            } else {
+                // 失敗: 錯誤動畫
+                showFeedback('❌');
+                animateMatchError();
+            }
+
+            // 檢查後重設選擇
+            selectedCards = [];
+            updateUI();
+        }
+
+        // 通用的錯誤動畫處理
+        function animateMatchError() {
+            selectedCards.forEach(card => {
+                card.classList.add('error');
+                card.classList.remove('selected');
+            });
+            setTimeout(() => {
+                selectedCards.forEach(card => card.classList.remove('error'));
+            }, 500);
+        }
+
+        // --- Level 5 專用函數 (成語填空) ---
+
+        // 渲染 Level 5 填空板
+        function renderFillInBoard(data) {
+            gameBoard.innerHTML = '';
+            idiomBankCardsContainer.innerHTML = '';
+            idiomBankContainer.classList.remove('hidden');
+            selectedTitle.textContent = '當前選擇的成語';
+            
+            // 1. 渲染句子
+            const sentenceDiv = document.createElement('div');
+            sentenceDiv.className = 'flex flex-col gap-4 text-xl font-medium sentence-container';
+            sentences.forEach(s => {
+                const p = document.createElement('p');
+                p.innerHTML = `${s.id}. ${s.text}`;
+                sentenceDiv.appendChild(p);
+            });
+            gameBoard.appendChild(sentenceDiv);
+
+            // 2. 渲染成語卡牌庫
+            idiomBank = shuffleArray(data.map(item => item.idiom));
+            idiomBank.forEach(idiom => {
+                const card = document.createElement('div');
+                card.id = `fill-card-${idiom}`;
+                card.textContent = idiom;
+                card.dataset.idiom = idiom;
+                card.className = 'item-card idiom-char p-3 flex items-center justify-center text-center rounded-lg shadow-md';
+                card.addEventListener('click', handleIdiomSelect);
+                idiomBankCardsContainer.appendChild(card);
+            });
+
+            // 3. 綁定空白格點擊事件
+            document.querySelectorAll('.blank').forEach(blank => {
+                blank.addEventListener('click', handleBlankClick);
+            });
+        }
+
+        // 處理 Level 5 選擇成語卡
+        function handleIdiomSelect(e) {
+            const card = e.target;
+            const idiom = card.dataset.idiom;
+
+            // 清除所有卡片的 selected 狀態
+            document.querySelectorAll('.fill-in-idiom-bank .item-card').forEach(c => c.classList.remove('selected'));
+
+            if (selectedIdiom === idiom) {
+                // 取消選擇
+                selectedIdiom = null;
+            } else {
+                // 選擇新成語
+                selectedIdiom = idiom;
+                card.classList.add('selected');
+            }
+            
+            updateUI();
+        }
+
+        // 處理 Level 5 點擊空白格
+        function handleBlankClick(e) {
+            const blank = e.target;
+            const blankId = blank.dataset.id;
+            
+            if (blank.classList.contains('filled')) {
+                // 如果已經填入，則忽略點擊 (不允許修改)
                 return;
             }
 
-            seatNumber = input.padStart(2, '0');
+            if (selectedIdiom) {
+                // 填入成語
+                blank.textContent = selectedIdiom;
+                blank.classList.add('filled');
+                
+                filledBlanks[blankId] = selectedIdiom; // 記錄已填入的答案
+                
+                // 標記成語卡為已使用
+                const idiomCard = document.getElementById(`fill-card-${selectedIdiom}`);
+                idiomCard.classList.remove('selected');
+                idiomCard.classList.add('used');
+                
+                showFeedback('🖋️'); // 填入回饋
+                
+                selectedIdiom = null; // 清除當前選擇
+                updateUI();
+                
+                // 檢查是否所有空白都已填滿 (8 個空白)
+                if (Object.keys(filledBlanks).length === 8) {
+                    setTimeout(checkFillInAnswers, 500);
+                }
+            } else {
+                showFeedback('👆'); // 提示先選擇成語
+            }
+        }
+
+        // 檢查 Level 5 填空答案
+        function checkFillInAnswers() {
+            let correctCount = 0;
+            let incorrectBlanks = [];
+            const allBlanks = document.querySelectorAll('.blank');
+            const totalBlanks = allBlanks.length;
+            
+            // 總嘗試次數加 1 (因為這是整組檢查)
+            totalAttempts++;
+
+            idiomSets.forEach(set => {
+                set.correctBlanks.forEach(correctBlankId => {
+                    const filledIdiom = filledBlanks[correctBlankId];
+                    const blankElement = document.querySelector(`[data-id="${correctBlankId}"]`);
+
+                    if (filledIdiom === set.idiom) {
+                        correctCount++;
+                        if (blankElement) {
+                            blankElement.classList.add('correct');
+                        }
+                    } else {
+                        if (blankElement) {
+                            blankElement.classList.add('incorrect');
+                            incorrectBlanks.push(blankElement);
+                        }
+                    }
+                });
+            });
+
+            if (correctCount === totalBlanks) {
+                // 完全正確！
+                score = currentLevelSets.length; // 確保分數是滿分
+                showFeedback('💯');
+                
+                // 清除所有錯誤動畫
+                allBlanks.forEach(b => b.classList.remove('incorrect'));
+
+                checkGameProgress();
+            } else {
+                // 有錯誤，顯示錯誤並給予提示
+                showFeedback('🧐');
+                
+                // 移除錯誤狀態
+                setTimeout(() => {
+                    incorrectBlanks.forEach(blank => blank.classList.remove('incorrect'));
+                }, 1500);
+
+                // 錯誤後，將所有已使用的成語卡恢復
+                idiomBankContainer.classList.add('opacity-50', 'pointer-events-none'); // 暫時鎖定介面
+                setTimeout(() => {
+                    // 重置已填入的答案
+                    filledBlanks = {};
+                    allBlanks.forEach(blank => {
+                        blank.textContent = '';
+                        blank.classList.remove('filled', 'correct', 'incorrect');
+                    });
+
+                    // 重置成語卡庫
+                    document.querySelectorAll('.fill-in-idiom-bank .item-card').forEach(c => c.classList.remove('used', 'selected'));
+                    selectedIdiom = null;
+                    updateUI();
+
+                    idiomBankContainer.classList.remove('opacity-50', 'pointer-events-none');
+                    showFeedback('🔄');
+                }, 2000);
+            }
+        }
+
+        // --- 核心遊戲流程與 UI 更新 ---
+
+        function updateUI() {
+            const def = levelDefinitions[currentLevel];
+
+            scoreDisplay.textContent = score;
+            totalSetsDisplay.textContent = (def && def.mode !== 'fill-in') ? def.sets : 8; // Level 5 顯示 8 個空格
+            levelDisplay.textContent = `第 ${currentLevel} 關 (${def.title})`;
+            levelInstruction.textContent = def.instruction;
+            currentSeatNumberDisplay.textContent = seatNumber || '--';
+
+            // 更新選中列表
+            selectedList.innerHTML = '';
+            if (def.mode === 'fill-in') {
+                if (selectedIdiom) {
+                    selectedList.innerHTML = `<div class="text-sm p-1 rounded bg-blue-100 border text-blue-700">${selectedIdiom}</div>`;
+                } else {
+                    selectedList.innerHTML = '<p class="text-sm text-gray-400">尚未選擇成語...</p>';
+                }
+            } else {
+                // Level 1-4 
+                if (selectedCards.length === 0) {
+                    selectedList.innerHTML = '<p class="text-sm text-gray-400">尚未選擇卡片...</p>';
+                } else {
+                    selectedCards.forEach(card => {
+                        const listItem = document.createElement('div');
+                        listItem.textContent = card.textContent;
+                        listItem.className = 'text-sm p-1 rounded bg-gray-50 border text-gray-700';
+                        selectedList.appendChild(listItem);
+                    });
+                }
+            }
+        }
+
+        // 檢查遊戲進度 (關卡是否完成)
+        function checkGameProgress() {
+            const def = levelDefinitions[currentLevel];
+            const maxLevel = Object.keys(levelDefinitions).length;
+
+            if (score === def.sets) {
+                // 關卡完成
+                if (currentLevel < maxLevel) {
+                    // 關卡勝利：顯示晉級訊息
+                    setTimeout(() => showLevelTransition(), 600);
+                } else {
+                    // 遊戲總勝利 (最後一關完成)
+                    stopTimer(); // 停止計時
+                    const finalTime = totalTimeSeconds;
+                    const finalAttempts = totalAttempts;
+                    const totalCorrectSets = allEliminationSets.length + idiomSets.length; // 總組數：21 + 8 = 29
+
+                    // 計算正確率 (Correct Rate)
+                    const correctRate = totalCorrectSets / finalAttempts;
+                    const accuracyPercentage = Math.round(correctRate * 100);
+
+                    // 計算綜合分數 (Performance Score)
+                    const wrongAttempts = finalAttempts - totalCorrectSets;
+                    const timePenaltyWeight = 1;
+                    const mistakePenaltyWeight = 10;
+
+                    const totalPenalty = (finalTime * timePenaltyWeight) + (wrongAttempts * mistakePenaltyWeight);
+                    const baseScore = 10000;
+                    let finalScore = Math.max(0, Math.floor(baseScore - totalPenalty)); 
+
+                    // 顯示最終統計數據 (加入分數)
+                    document.getElementById('final-stats').innerHTML = 
+                        `<span class="text-lg md:text-xl font-bold">總時間：<span class="text-blue-600">${formatTime(finalTime)}</span></span> | 
+                         <span class="text-lg md:text-xl font-bold">正確率：<span class="text-green-600">${accuracyPercentage}%</span></span> | 
+                         <span class="text-2xl md:text-3xl text-red-600 font-extrabold">得分：${finalScore}</span>`;
+                        
+                    startFireworks();
+                    setTimeout(() => successMessage.classList.remove('hidden'), 600);
+                    
+                    // 提交分數到 Firestore (本地模式下跳過)
+                    submitScore(finalTime, finalAttempts);
+                }
+            }
+        }
+
+
+        // 核心：初始化或重啟遊戲 (可指定關卡)
+        function initGame(level = 1) {
+            if (!userId) {
+                loginScreen.classList.remove('hidden');
+                gameMainContent.classList.add('hidden');
+                return;
+            }
+
+            // 遊戲初始化
+            currentLevel = level;
+            const def = levelDefinitions[currentLevel];
+            
+            // 重置狀態
+            selectedCards = [];
+            score = 0;
+            gameBoard.innerHTML = '';
+            successMessage.classList.add('hidden');
+            levelUpMessage.classList.add('hidden');
+            idiomBankContainer.classList.add('hidden'); // 預設隱藏 Level 5 專用區塊
+            selectedIdiom = null;
+            filledBlanks = {};
+            
+            document.getElementById('fireworks-container').style.display = 'none';
+            document.getElementById('fireworks-container').innerHTML = '';
+            
+            // 如果是第一關，重新計時並重設總嘗試次數
+            if (currentLevel === 1) {
+                totalAttempts = 0;
+                startTimer();
+            }
+
+            // 根據模式設定遊戲板佈局和內容
+            if (def.mode === '3-elimination') {
+                currentLevelSets = allEliminationSets.slice(def.start, def.end);
+                allItems = shuffleArray(generate3EliminationItems(currentLevelSets));
+                
+                gameBoard.className = 'md:col-span-3 bg-gray-100 p-6 rounded-xl min-h-[400px] grid grid-cols-3 gap-4 border border-gray-300';
+                selectedTitle.textContent = '當前選擇';
+
+                allItems.forEach(item => {
+                    const card = document.createElement('div');
+                    card.id = item.id;
+                    card.textContent = item.text;
+                    card.dataset.category = item.category;
+                    card.dataset.type = item.type;
+                    card.className = `item-card p-2 h-28 flex items-center justify-center text-center rounded-xl font-bold shadow-md ${item.type === 'char' ? 'char-card text-3xl' : 'word-card'}`;
+                    card.addEventListener('click', handle3EliminationClick);
+                    gameBoard.appendChild(card);
+                });
+
+            } else if (def.mode === '2-match') {
+                // Level 4: 成語解釋配對
+                currentLevelSets = def.data; // 8 sets
+                allItems = shuffleArray(generateLevel4Items(def.data));
+                
+                gameBoard.className = 'md:col-span-3 bg-gray-100 p-6 rounded-xl min-h-[400px] grid grid-cols-4 gap-4 border border-gray-300';
+                selectedTitle.textContent = '當前選擇';
+                
+                renderMatchingBoard(allItems); // 渲染 Level 4 卡片
+
+            } else if (def.mode === 'fill-in') {
+                // Level 5: 成語填空
+                currentLevelSets = def.data; // 8 sets
+                
+                gameBoard.className = 'md:col-span-3 bg-gray-100 p-6 rounded-xl min-h-[400px] flex flex-col gap-6 border border-gray-300';
+                
+                renderFillInBoard(def.data); // 渲染 Level 5 UI
+            }
+
+
+            updateUI();
+        }
+
+        // 登入並開始遊戲 (已修改為本地模式)
+        async function authenticateAndStartGame() {
+            const input = seatNumberInput.value.trim();
+            const seatNum = parseInt(input);
+            
+            if (!input || isNaN(seatNum) || seatNum <= 0) {
+                console.error("請輸入有效的座號 (正整數)。");
+                seatNumberInput.classList.add('border-red-500');
+                return;
+            }
+
+            seatNumber = seatNum.toString().padStart(2, '0');
             
             // **本地模式處理：設置虛擬用戶 ID，並跳過所有 Firebase 驗證**
             userId = `LOCAL_PLAYER_${seatNumber}`;
@@ -605,7 +1015,7 @@
             loginScreen.classList.add('hidden');
             gameMainContent.classList.remove('hidden');
 
-            // 開始遊戲
+            // 從第一關開始遊戲
             initGame(1);
         }
 
@@ -617,7 +1027,6 @@
             // 允許按 Enter 鍵登入
             seatNumberInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
-                    e.preventDefault(); // 阻止 Enter 鍵的預設行為 (如表單提交)
                     authenticateAndStartGame();
                 }
             });
@@ -644,3 +1053,4 @@
     </script>
 </body>
 </html>
+
