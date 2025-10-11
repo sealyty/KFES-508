@@ -6,44 +6,6 @@
     <title>形近字與成語配對消除遊戲</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Firebase 匯入 (本地模式模擬) -->
-    <script type="module">
-        // ** GitHub Pages/本地模式修復：強制設定為本地模式，跳過所有 Firebase 登入邏輯 **
-        
-        // 模擬必要的全域變數
-        window.__app_id = 'default-app-id';
-        window.__firebase_config = '{}';
-        window.__initial_auth_token = null;
-
-        // 檢查是否為本地檔案協定 (在 GitHub Pages 上也是視為非外部平台的環境)
-        const isLocalFile = true; // 強制設為 true，模擬離線或外部託管
-        
-        // 確保全局物件存在，但所有函數都是空的或返回 null
-        window.firebase = {
-            auth: null,
-            db: null,
-            appId: window.__app_id,
-            initialAuthToken: window.__initial_auth_token,
-            isLocalFile: isLocalFile, // 傳遞本地檔案狀態
-
-            // 模擬 Firebase 函數，確保程式碼調用時不會崩潰
-            authReadyPromise: Promise.resolve('LOCAL_USER_ID'), 
-            collection: () => null,
-            query: () => null,
-            onSnapshot: (q, cb, err) => {
-                // 在本地模式下，立即返回錯誤或空列表
-                if (err) err(new Error("Local mode: Cannot connect to Firestore."));
-                return () => {}; // 返回一個空的unsubscribe函數
-            },
-            runTransaction: async (db, cb) => {
-                console.warn("Local mode: Skipping Firestore transaction (score submission).");
-                return;
-            },
-            signInAnonymously: async () => ({ user: { uid: 'LOCAL_USER_ID' } }),
-            signInWithCustomToken: async () => ({ user: { uid: 'LOCAL_USER_ID' } }),
-        };
-    </script>
-
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
@@ -177,7 +139,7 @@
     </style>
 </head>
 <body class="min-h-screen p-4 md:p-8">
-    <!-- 登入畫面 -->
+    <!-- 登入畫面 (現在只用於輸入座號) -->
     <div id="login-screen" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-50">
         <div class="bg-white p-8 md:p-12 rounded-xl text-center shadow-2xl w-11/12 max-w-sm">
             <h2 class="text-3xl font-extrabold text-blue-600 mb-6">歡迎挑戰！</h2>
@@ -262,59 +224,58 @@
 
         // Level 1-3: 形近字三消 (共 21 組)
         const allEliminationSets = [
-            // Level 1: Sets 1-6 (6 sets)
-            { category: '燈', items: ['燈', '___光', '挑___夜戰'], type: 'fire' },
-            { category: '澄', items: ['澄', '___清', '黃______'], type: 'water' },
-            { category: '橙', items: ['橙', '柳___', '紅___黃綠藍靛紫'], type: 'wood' },
-            { category: '樸', items: ['樸', '___實無華', '___素'], type: 'wood' },
-            { category: '僕', items: ['僕', '___人', '風塵______'], type: 'people' },
-            { category: '撲', items: ['撲', '___滅', '飛蛾___火'], type: 'hand' },
-            // Level 2: Sets 7-13 (7 sets)
-            { category: '堆', items: ['堆', '___疊', '___積如山'], type: 'soil' },
-            { category: '推', items: ['推', '___三阻四', '___動'], type: 'hand' },
-            { category: '稚', items: ['稚', '幼___', '___嫩'], type: 'rice' },
-            { category: '撿', items: ['撿', '___拾', '___便宜'], type: 'hand' },
-            { category: '檢', items: ['檢', '突擊___查', '___驗'], type: 'wood' },
-            { category: '儉', items: ['儉', '節___', '省吃___用'], type: 'people' },
-            { category: '臉', items: ['臉', '___孔', '愁眉苦___'], type: 'meat' },
-            // Level 3: Sets 14-21 (8 sets)
-            { category: '康', items: ['康', '健___', '___復'], type: 'house' },
-            { category: '慷', items: ['慷', '___慨', '___慨解囊'], type: 'heart' },
-            { category: '糠', items: ['糠', '米___', '糟___之妻'], type: 'rice' },
-            { category: '滋', items: ['滋', '___潤', '個中___味'], type: 'water' },
-            { category: '磁', items: ['磁', '___鐵', '___浮列車'], type: 'stone' },
-            { category: '慨', items: ['慨', '慷___', '感___'], type: 'heart' },
-            { category: '概', items: ['概', '大___', '___念'], type: 'wood' },
-            { category: '溉', items: ['溉', '灌___', '灌___工程'], type: 'heart' },
+            // Level 1: Sets 1-7 (7 sets) - Index 0-6
+            { category: '核', items: ['核', '___准', '___能發電'], type: 'wood' },
+            { category: '該', items: ['該', '罪___萬死', '應___'], type: 'speak' },
+            { category: '孩', items: ['孩', '___童', '嬰___'], type: 'kid' },
+            { category: '注', items: ['注', '專___', '全神貫___'], type: 'water' },
+            { category: '註', items: ['註', '___冊商標', '___銷'], type: 'speak' },
+            { category: '駐', items: ['駐', '___守', '___軍'], type: 'horse' },
+            { category: '柱', items: ['柱', '梁___', '中流砥___'], type: 'wood' },
+            // Level 2: Sets 8-14 (7 sets) - Index 7-13 (已修正)
+            { category: '申', items: ['申', '___請', '三令五___'], type: 'line' },
+            { category: '伸', items: ['伸', '___張正義', '___展'], type: 'people' },
+            { category: '松', items: ['松', '___柏', '___鼠'], type: 'wood' },
+            { category: '頌', items: ['頌', '___揚', '歌功___德'], type: 'husband' },
+            { category: '訟', items: ['訟', '集體訴___', '___案'], type: 'speak' },
+            { category: '歷', items: ['歷', '___久不衰', '親身經___'], type: 'stop' },
+            { category: '曆', items: ['曆', '日___', '行事___'], type: 'day' },
+            // Level 3: Sets 15-21 (7 sets) - Index 14-20 (已修正)
+            { category: '項', items: ['項', '望其___背', '___目'], type: 'engine' },
+            { category: '頂', items: ['頂', '___天立地', '___尖'], type: 'ding' },
+            { category: '銷', items: ['銷', '推___', '___售一空'], type: 'metal' },
+            { category: '消', items: ['消', '___聲匿跡', '綠色___費'], type: 'water' },
+            { category: '稍', items: ['稍', '___微', '___縱即逝'], type: 'rice' },
+            { category: '哨', items: ['哨', '___音', '吹口___'], type: 'mouth' },
+            { category: '梢', items: ['梢', '樹___', '喜上眉___'], type: 'wood' },
         ];
 
-        // Level 4/5: 成語資料 (共 8 組)
+        // Level 4/5: 成語資料 (共 7 組)
         const idiomSets = [
-            { idiom: '養精蓄銳', explanation: '保養精神，積蓄力量', correctBlanks: ['blank_3_2'] },
-            { idiom: '飲水思源', explanation: '比喻人不忘本', correctBlanks: ['blank_4_2'] },
-            { idiom: '養尊處優', explanation: '處在尊貴的地位，過著優越富裕的生活', correctBlanks: ['blank_2_1'] },
-            { idiom: '義正辭嚴', explanation: '義理正當，措詞嚴厲', correctBlanks: ['blank_4_1'] },
-            { idiom: '汗馬功勞', explanation: '指征戰的功勞，亦泛指一般的功勞', correctBlanks: ['blank_1_1'] },
-            { idiom: '怨聲載道', explanation: '形容群眾普遍的怨恨和不滿', correctBlanks: ['blank_2_2'] },
-            { idiom: '腰痠背痛', explanation: '腰部和背部痠痛', correctBlanks: ['blank_3_1'] },
-            { idiom: '任勞任怨', explanation: '做事負責，不辭勞苦、不怕嫌怨', correctBlanks: ['blank_1_2'] },
+            { idiom: '堅毅不拔', explanation: '形容意志堅定，不可動搖', correctBlanks: ['blank_3_2'] },
+            { idiom: '當務之急', explanation: '當前最急迫要做的事', correctBlanks: ['blank_2_1'] },
+            { idiom: '三令五申', explanation: '再三命令告誡', correctBlanks: ['blank_4_1'] },
+            { idiom: '沽名釣譽', explanation: '故意做作，用手段謀取名聲和讚譽', correctBlanks: ['blank_1_1'] },
+            { idiom: '歷歷在目', explanation: '清楚明白的呈現在眼前', correctBlanks: ['blank_2_2'] },
+            { idiom: '出奇制勝', explanation: '比喻用奇特、創新的方法取得好效果', correctBlanks: ['blank_3_1'] },
+            { idiom: '橫行霸道', explanation: '形容兇橫不講理', correctBlanks: ['blank_1_2'] },
         ];
         
         // 成語填空句子 (Level 5 專用)
         const sentences = [
-            { id: 1, text: '這次園遊會能圓滿成功，除了全班同學同心協力，共同立下了<span class="blank" data-id="blank_1_1"></span>外，也多虧班級懂事長們<span class="blank" data-id="blank_1_2"></span>地幫忙規劃和執行，才能讓活動順利又好玩！' },
-            { id: 2, text: '那幾位<span class="blank" data-id="blank_2_1"></span>的主管，因為從不了解基層的工作狀況，常常做出不合理的決策，讓底下的員工<span class="blank" data-id="blank_2_2"></span>，對公司產生了許多不滿。' },
-            { id: 3, text: '比賽前夕練習了一整天，選手們都<span class="blank" data-id="blank_3_1"></span>，所以教練宣布今晚要好好<span class="blank" data-id="blank_3_2"></span>，明天才能拿出最好的表現。' },
-            { id: 4, text: '畢業典禮上，校長<span class="blank" data-id="blank_4_1"></span>地告誡所有畢業生，做人一定要<span class="blank" data-id="blank_4_2"></span>，永遠不要忘記老師們的教導與恩情。' }
+            { id: 1, text: '上次學生在走廊追逐受傷，那個驚險畫面到現在還<span class="blank" data-id="blank_2_2"></span>，所以老師<span class="blank" data-id="blank_4_1"></span>要求我們不能在校園裡奔跑。' },
+            { id: 2, text: '面對下週的班級籃球賽，教練認為<span class="blank" data-id="blank_2_1"></span>是加強防守，並設計一個能<span class="blank" data-id="blank_3_1"></span>的戰術來贏得比賽。' },
+            { id: 3, text: '面對惡勢力的<span class="blank" data-id="blank_1_2"></span>，小鎮的居民們沒有退縮，而是<span class="blank" data-id="blank_3_2"></span>地團結起來，決定共同保護家園。' },
+            { id: 4, text: '真正的慈善家是默默付出的，那些到處宣傳自己做了多少好事的人，很容易被人認為是<span class="blank" data-id="blank_1_1">。' }
         ];
 
         // 關卡定義：start (包含) 到 end (不包含)
         const levelDefinitions = {
-            1: { start: 0, end: 6, sets: 6, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "🎉 恭喜完成第一關！進入第二關挑戰進階形近字吧！" },
-            2: { start: 6, end: 13, sets: 7, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "🏆 太棒了！第二關挑戰成功！準備挑戰最後的魔王關！" },
-            3: { start: 13, end: 21, sets: 8, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "✨ 成功通過形近字挑戰！接下來是成語大考驗！" },
-            4: { sets: 8, mode: '2-match', title: "成語解釋配對", data: idiomSets, instruction: "說明：點擊 **1 個成語** 和 **1 個正確解釋**，湊成一組後即可消除！", encouragement: "💡 完美配對！成語解釋難不倒你，準備填空吧！" },
-            5: { sets: 8, mode: 'fill-in', title: "成語填空挑戰", data: idiomSets, instruction: "說明：點擊下方 **成語卡**，再點擊上方句子中的 **空格** 將其填入。", encouragement: null }
+            1: { start: 0, end: 7, sets: 7, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "🎉 恭喜完成第一關！進入第二關挑戰進階形近字吧！" },
+            2: { start: 7, end: 14, sets: 7, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "🏆 太棒了！第二關挑戰成功！準備挑戰形近字魔王關！" }, 
+            3: { start: 14, end: 21, sets: 7, mode: '3-elimination', title: "形近字三消", instruction: "說明：點擊 **1 個形近字** 與 **2 個相關遮罩詞語**，湊成一組後即可消除！", encouragement: "✨ 成功通過形近字挑戰！接下來是成語大考驗！" },
+            4: { sets: 7, mode: '2-match', title: "成語解釋配對", data: idiomSets, instruction: "說明：點擊 **1 個成語** 和 **1 個正確解釋**，湊成一組後即可消除！", encouragement: "💡 完美配對！成語解釋難不倒你，準備填空吧！" },
+            5: { sets: 7, mode: 'fill-in', title: "成語填空挑戰", data: idiomSets, instruction: "說明：點擊下方 **成語卡**，再點擊上方句子中的 **空格** 將其填入。", encouragement: null }
         };
 
         // 遊戲狀態變數
@@ -328,8 +289,7 @@
         let timerInterval = null;
         let totalTimeSeconds = 0;
 
-        let userId = null;
-        let seatNumber = null;
+        let seatNumber = null; // 僅用於顯示玩家身份
         
         // Level 5 專用狀態
         let selectedIdiom = null; // 儲存 Level 5 點擊的成語卡
@@ -359,7 +319,7 @@
         const selectedTitle = document.getElementById('selected-title');
 
 
-        // --- 時間函數與分數提交 (本地模式下僅為計時器) ---
+        // --- 時間函數 ---
 
         // 格式化時間 (秒數轉為 MM:SS)
         const formatTime = (seconds) => {
@@ -388,18 +348,12 @@
             timerInterval = null;
         }
 
-        // 提交最佳得分到 Firestore (本地模式下跳過)
-        async function submitScore(timeTaken, attempts) {
-             console.warn(`[Local Mode] Score achieved: Time=${formatTime(timeTaken)}, Attempts=${attempts}. Score submission skipped.`);
-        }
-
 
         // --- 遊戲通用輔助函數 ---
 
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                // 修正：賦值號右側必須是陣列，否則會觸發 'object is not iterable' 錯誤
                 [array[i], array[j]] = [array[j], array[i]]; 
             }
             return array;
@@ -764,8 +718,8 @@
                 selectedIdiom = null; // 清除當前選擇
                 updateUI();
                 
-                // 檢查是否所有空白都已填滿 (8 個空白)
-                if (Object.keys(filledBlanks).length === 8) {
+                // 檢查是否所有空白都已填滿 ( Level 5 總共有 7 個空白)
+                if (Object.keys(filledBlanks).length === 7) { 
                     setTimeout(checkFillInAnswers, 500);
                 }
             } else {
@@ -778,7 +732,7 @@
             let correctCount = 0;
             let incorrectBlanks = [];
             const allBlanks = document.querySelectorAll('.blank');
-            const totalBlanks = allBlanks.length;
+            const totalBlanks = allBlanks.length; // 應該是 7
             
             // 總嘗試次數加 1 (因為這是整組檢查)
             totalAttempts++;
@@ -795,8 +749,11 @@
                         }
                     } else {
                         if (blankElement) {
-                            blankElement.classList.add('incorrect');
-                            incorrectBlanks.push(blankElement);
+                            // 只有在確定填入錯誤答案時才標記為 incorrect
+                            if (filledIdiom) { 
+                                blankElement.classList.add('incorrect');
+                                incorrectBlanks.push(blankElement);
+                            }
                         }
                     }
                 });
@@ -804,7 +761,7 @@
 
             if (correctCount === totalBlanks) {
                 // 完全正確！
-                score = currentLevelSets.length; // 確保分數是滿分
+                score = currentLevelSets.length; // 確保分數是滿分 (7 分)
                 showFeedback('💯');
                 
                 // 清除所有錯誤動畫
@@ -847,7 +804,8 @@
             const def = levelDefinitions[currentLevel];
 
             scoreDisplay.textContent = score;
-            totalSetsDisplay.textContent = (def && def.mode !== 'fill-in') ? def.sets : 8; // Level 5 顯示 8 個空格
+            // 修正 Level 5 顯示的總組數為 7
+            totalSetsDisplay.textContent = (def && def.mode !== 'fill-in') ? def.sets : 7; 
             levelDisplay.textContent = `第 ${currentLevel} 關 (${def.title})`;
             levelInstruction.textContent = def.instruction;
             currentSeatNumberDisplay.textContent = seatNumber || '--';
@@ -890,14 +848,17 @@
                     stopTimer(); // 停止計時
                     const finalTime = totalTimeSeconds;
                     const finalAttempts = totalAttempts;
-                    const totalCorrectSets = allEliminationSets.length + idiomSets.length; // 總組數：21 + 8 = 29
+                    
+                    // 修正：總正確動作數 = (Level 1-4: 4 * 7組) + (Level 5: 1次檢查) = 29
+                    const totalCorrectActions = 29; 
 
                     // 計算正確率 (Correct Rate)
-                    const correctRate = totalCorrectSets / finalAttempts;
+                    // 確保正確率最高為 1.0 (100%)
+                    const correctRate = Math.min(1.0, totalCorrectActions / finalAttempts);
                     const accuracyPercentage = Math.round(correctRate * 100);
 
                     // 計算綜合分數 (Performance Score)
-                    const wrongAttempts = finalAttempts - totalCorrectSets;
+                    const wrongAttempts = finalAttempts - totalCorrectActions;
                     const timePenaltyWeight = 1;
                     const mistakePenaltyWeight = 10;
 
@@ -905,7 +866,7 @@
                     const baseScore = 10000;
                     let finalScore = Math.max(0, Math.floor(baseScore - totalPenalty)); 
 
-                    // 顯示最終統計數據 (加入分數)
+                    // 顯示最終統計數據
                     document.getElementById('final-stats').innerHTML = 
                         `<span class="text-lg md:text-xl font-bold">總時間：<span class="text-blue-600">${formatTime(finalTime)}</span></span> | 
                          <span class="text-lg md:text-xl font-bold">正確率：<span class="text-green-600">${accuracyPercentage}%</span></span> | 
@@ -913,9 +874,6 @@
                         
                     startFireworks();
                     setTimeout(() => successMessage.classList.remove('hidden'), 600);
-                    
-                    // 提交分數到 Firestore (本地模式下跳過)
-                    submitScore(finalTime, finalAttempts);
                 }
             }
         }
@@ -923,7 +881,7 @@
 
         // 核心：初始化或重啟遊戲 (可指定關卡)
         function initGame(level = 1) {
-            if (!userId) {
+            if (!seatNumber) {
                 loginScreen.classList.remove('hidden');
                 gameMainContent.classList.add('hidden');
                 return;
@@ -954,6 +912,7 @@
 
             // 根據模式設定遊戲板佈局和內容
             if (def.mode === '3-elimination') {
+                // 使用修正後的 start/end 索引
                 currentLevelSets = allEliminationSets.slice(def.start, def.end);
                 allItems = shuffleArray(generate3EliminationItems(currentLevelSets));
                 
@@ -994,8 +953,8 @@
             updateUI();
         }
 
-        // 登入並開始遊戲 (已修改為本地模式)
-        async function authenticateAndStartGame() {
+        // 處理座號輸入並開始遊戲
+        function handleStartGame() {
             const input = seatNumberInput.value.trim();
             const seatNum = parseInt(input);
             
@@ -1007,10 +966,6 @@
 
             seatNumber = seatNum.toString().padStart(2, '0');
             
-            // **本地模式處理：設置虛擬用戶 ID，並跳過所有 Firebase 驗證**
-            userId = `LOCAL_PLAYER_${seatNumber}`;
-            console.warn("Running in offline/local mode on GitHub Pages.");
-
             // 隱藏登入畫面，顯示遊戲主體
             loginScreen.classList.add('hidden');
             gameMainContent.classList.remove('hidden');
@@ -1022,12 +977,12 @@
         // 事件監聽器與啟動
         document.addEventListener('DOMContentLoaded', () => {
             // 登入按鈕
-            startGameBtn.addEventListener('click', authenticateAndStartGame);
+            startGameBtn.addEventListener('click', handleStartGame);
             
             // 允許按 Enter 鍵登入
             seatNumberInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
-                    authenticateAndStartGame();
+                    handleStartGame();
                 }
             });
 
@@ -1053,4 +1008,3 @@
     </script>
 </body>
 </html>
-
